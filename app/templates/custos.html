@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AEGIS — Custos · {{ account.name }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d0d0d; --surface: #111111; --surface2: #161616; --surface3: #1a1a1a;
+      --border: #1e1e1e; --border2: #2a2a2a;
+      --text: #e0e0e0; --muted: #555555;
+      --orange: #f5a623; --green: #4caf50; --red: #f44336;
+      --yellow: #ffd54f; --blue: #64b5f6; --purple: #ab47bc; --teal: #26c6da;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* Nav */
+    header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0 32px; height: 52px;
+      display: flex; align-items: center; gap: 16px;
+      position: sticky; top: 0; z-index: 300;
+    }
+    .logo { font-size: 17px; font-weight: 700; letter-spacing: 4px; color: #fff; text-decoration: none; }
+    .logo span { color: var(--orange); }
+    .header-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; }
+    .header-actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 12px; font-weight: 600; padding: 6px 13px;
+      border-radius: 6px; border: none; cursor: pointer;
+      text-decoration: none; transition: opacity .15s; white-space: nowrap;
+    }
+    .btn:hover { opacity: .8; }
+    .btn-primary { background: var(--orange); color: #000; }
+    .btn-ghost   { background: var(--surface3); color: #777; border: 1px solid var(--border2); }
+    .btn-green   { background: #1a3a1a; color: var(--green); border: 1px solid #2d5a2d; }
+    .btn-save-all {
+      font-size: 13px; font-weight: 700; padding: 8px 20px;
+      border-radius: 7px; border: none; cursor: pointer;
+      background: var(--green); color: #000;
+      transition: opacity .15s, transform .1s;
+      display: none; /* hidden until dirty rows exist */
+    }
+    .btn-save-all:hover { opacity: .85; transform: scale(1.02); }
+    .btn-save-all.visible { display: inline-flex; align-items: center; gap: 6px; }
+    #dirtyCount {
+      background: #000; color: var(--yellow); border-radius: 10px;
+      padding: 1px 7px; font-size: 11px; font-weight: 700;
+    }
+
+    main { padding: 24px 32px 60px; }
+
+    /* Flash */
+    .flashes { padding: 10px 32px 0; display: flex; flex-direction: column; gap: 8px; }
+    .flash { padding: 10px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; }
+    .flash.success { background: #1a3a1a; border: 1px solid var(--green); color: #81c784; }
+    .flash.error   { background: #3a1212; border: 1px solid var(--red);   color: #ef9a9a; }
+    .flash.info    { background: #1a2030; border: 1px solid var(--blue);  color: #90caf9; }
+
+    /* Summary cards */
+    .summary-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    .sum-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 18px; min-width: 140px;
+    }
+    .sum-card .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+    .sum-card .val { font-size: 22px; font-weight: 700; }
+    .sum-card.danger { border-color: #4a1515; background: #1a0808; }
+    .sum-card.danger .val { color: var(--red); }
+    .sum-card.ok .val { color: var(--green); }
+
+    /* Defaults */
+    .defaults-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px 22px;
+      margin-bottom: 18px;
+      display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap;
+    }
+    .box-title {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--muted); width: 100%; margin-bottom: 2px;
+    }
+    .field-group { display: flex; flex-direction: column; gap: 5px; }
+    .field-group label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    .field-group input {
+      background: var(--surface3); border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 13px;
+      padding: 6px 10px; width: 110px; outline: none;
+    }
+    .field-group input:focus { border-color: #444; }
+    .apply-check { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #888; cursor: pointer; }
+    .apply-check input { width: auto; }
+    .tip { font-size: 11px; color: #333; line-height: 1.5; max-width: 260px; }
+
+    /* Import row */
+    .toolbar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 18px; margin-bottom: 18px;
+    }
+    .toolbar .sep { width: 1px; height: 24px; background: var(--border2); }
+    input[type="file"] { font-size: 12px; color: #888; background: transparent; border: none; outline: none; cursor: pointer; }
+    input.search, select.brand-filter {
+      background: var(--surface3); border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 12px;
+      padding: 6px 10px; outline: none;
+    }
+    input.search { width: 200px; }
+    select.brand-filter { min-width: 140px; }
+    input.search:focus, select.brand-filter:focus { border-color: #444; }
+
+    /* Table */
+    .table-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .table-header h2 { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); }
+    .tbl-count { font-size: 11px; color: #333; margin-left: auto; }
+
+    .table-wrap { border-radius: 10px; border: 1px solid var(--border); overflow: hidden; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead { background: var(--surface2); position: sticky; top: 52px; z-index: 10; }
+    thead tr { border-bottom: 1px solid #222; }
+    th {
+      padding: 9px 12px; text-align: left;
+      font-size: 10px; font-weight: 700;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+      white-space: nowrap;
+    }
+    th.num { text-align: right; }
+    td { padding: 6px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #0f0f0f; }
+
+    /* Dirty row */
+    tbody tr.dirty td { box-shadow: inset 0 0 0 1px rgba(255,213,79,.35); }
+    tbody tr.dirty td:first-child { border-left: 3px solid var(--yellow); }
+
+    .td-title { font-size: 12px; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
+    .td-id    { font-size: 10px; color: #333; font-family: monospace; margin-top: 1px; }
+
+    .badge-sem-custo {
+      display: inline-block; padding: 2px 7px; border-radius: 10px;
+      font-size: 10px; font-weight: 700;
+      background: rgba(244,67,54,.15); color: var(--red);
+      border: 1px solid rgba(244,67,54,.3);
+      margin-left: 6px; vertical-align: middle;
+    }
+
+    .price-col { color: #555; font-size: 11px; text-align: right; }
+
+    input.cost-input {
+      background: var(--surface3); border: 1px solid var(--border2);
+      border-radius: 5px; color: var(--text); font-size: 12px;
+      padding: 4px 7px; width: 88px; outline: none; text-align: right;
+    }
+    input.cost-input:focus { border-color: #555; }
+    input.marca-input {
+      background: var(--surface3); border: 1px solid var(--border2);
+      border-radius: 5px; color: var(--text); font-size: 12px;
+      padding: 4px 7px; width: 100px; outline: none;
+    }
+    input.marca-input:focus { border-color: #555; }
+    .tag-unit { font-size: 10px; color: #333; margin-left: 2px; }
+
+    /* Margem em tempo real */
+    .margem-cell { text-align: right; font-size: 12px; font-weight: 700; min-width: 70px; }
+    .m-pos  { color: var(--green); }
+    .m-mid  { color: var(--yellow); }
+    .m-low  { color: var(--orange); }
+    .m-neg  { color: var(--purple); }
+    .m-none { color: #333; }
+
+    /* History button */
+    .btn-hist {
+      background: transparent; border: 1px solid var(--border2);
+      border-radius: 5px; color: #444; font-size: 11px;
+      padding: 3px 7px; cursor: pointer; transition: all .15s;
+    }
+    .btn-hist:hover { border-color: var(--orange); color: var(--orange); }
+
+    /* History modal */
+    #histModal {
+      display: none; position: fixed; inset: 0; z-index: 500;
+      background: rgba(0,0,0,.7); align-items: center; justify-content: center;
+    }
+    #histModal.open { display: flex; }
+    .hist-box {
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 12px; padding: 24px 28px; min-width: 360px; max-width: 480px;
+    }
+    .hist-title { font-size: 13px; font-weight: 700; color: var(--orange); margin-bottom: 16px; }
+    .hist-row { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .hist-row:last-child { border-bottom: none; }
+    .hist-date { color: var(--muted); font-size: 11px; }
+    .hist-old  { text-decoration: line-through; color: #444; }
+    .hist-new  { color: var(--orange); font-weight: 700; }
+    .hist-empty { color: #333; text-align: center; padding: 20px; }
+    .btn-close-modal {
+      margin-top: 18px; width: 100%;
+      background: var(--surface3); border: 1px solid var(--border2);
+      color: var(--muted); border-radius: 6px; padding: 8px;
+      cursor: pointer; font-size: 12px;
+    }
+    .btn-close-modal:hover { border-color: #444; color: var(--text); }
+
+    /* Status dot */
+    .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+    .dot-set   { background: var(--green); }
+    .dot-empty { background: #333; }
+
+    footer { text-align: center; font-size: 11px; color: #222; padding: 20px; border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="{{ url_for('web.index') }}" class="logo">AE<span>G</span>IS</a>
+  <span class="header-title">Custos · {{ account.name }}</span>
+  <div class="header-actions">
+    <button class="btn-save-all" id="btnSaveAll" onclick="saveAll()">
+      Salvar tudo <span id="dirtyCount">0</span>
+    </button>
+    <a href="{{ url_for('web.dashboard', account=account.name) }}" class="btn btn-ghost">← Dashboard</a>
+    <a href="{{ url_for('costs.apuracao', seller_id=seller_id) }}"  class="btn btn-ghost">Apuração</a>
+    <a href="{{ url_for('costs.template_costs', seller_id=seller_id) }}" class="btn btn-ghost">Template .xlsx</a>
+    <a href="{{ url_for('costs.export_costs',   seller_id=seller_id) }}" class="btn btn-primary">Exportar .xlsx</a>
+  </div>
+</header>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div class="flashes">
+    {% for cat, msg in messages %}
+    <div class="flash {{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endwith %}
+
+<main>
+
+  <!-- ── SUMMARY ──────────────────────────────────────────────────────────── -->
+  <div class="summary-row">
+    <div class="sum-card {{ 'danger' if sem_custo > 0 else 'ok' }}">
+      <div class="lbl">Sem custo</div>
+      <div class="val">{{ sem_custo }}</div>
+    </div>
+    <div class="sum-card ok">
+      <div class="lbl">Com custo</div>
+      <div class="val">{{ items|length - sem_custo }}</div>
+    </div>
+    <div class="sum-card">
+      <div class="lbl">Total produtos</div>
+      <div class="val" style="color:var(--orange)">{{ items|length }}</div>
+    </div>
+    {% if sem_custo > 0 %}
+    <div style="display:flex;align-items:center;font-size:12px;color:#6a2020;background:#1a0808;border:1px solid #4a1515;border-radius:8px;padding:10px 16px;gap:8px;">
+      <span style="font-size:18px">⚠️</span>
+      <span><strong style="color:var(--red)">{{ sem_custo }} produto(s)</strong> sem custo cadastrado — margem não calculada para eles.</span>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── DEFAULTS ─────────────────────────────────────────────────────────── -->
+  <form method="POST" action="{{ url_for('costs.save_defaults', seller_id=seller_id) }}">
+    <div class="defaults-box">
+      <div class="box-title">Configurações padrão do seller</div>
+      <div class="field-group">
+        <label>Alíquota fiscal (%)</label>
+        <input type="number" name="tax_rate" step="0.01" min="0" max="100"
+               value="{{ '%.2f'|format(defaults.tax_rate * 100) }}" placeholder="6.00">
+      </div>
+      <div class="field-group">
+        <label>Comissão ML (%)</label>
+        <input type="number" name="ml_fee_rate" step="0.01" min="0" max="100"
+               value="{{ '%.2f'|format(defaults.ml_fee_rate * 100) }}" placeholder="14.00">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <label class="apply-check">
+          <input type="checkbox" name="apply_all" value="1">
+          Aplicar a todos os produtos agora
+        </label>
+        <button type="submit" class="btn btn-primary" style="width:fit-content">Salvar defaults</button>
+      </div>
+      <p class="tip">Alíquota usada na apuração de lucro. Marque "Aplicar a todos" para forçar em toda a base.</p>
+    </div>
+  </form>
+
+  <!-- ── TOOLBAR (importar + filtros) ─────────────────────────────────────── -->
+  <div class="toolbar">
+    <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Importar .xlsx</span>
+    <form method="POST" action="{{ url_for('costs.import_costs', seller_id=seller_id) }}"
+          enctype="multipart/form-data" style="display:flex;align-items:center;gap:8px">
+      <input type="file" name="file" accept=".xlsx">
+      <button type="submit" class="btn btn-primary">Importar</button>
+    </form>
+
+    <div class="sep"></div>
+
+    <input class="search" id="searchInput" type="text" placeholder="Buscar produto…"
+           oninput="applyFilters()">
+
+    {% if marcas %}
+    <select class="brand-filter" id="brandFilter" onchange="applyFilters()">
+      <option value="">Todas as marcas</option>
+      {% for m in marcas %}
+      <option value="{{ m|lower }}">{{ m }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+
+    <select class="brand-filter" id="costFilter" onchange="applyFilters()">
+      <option value="">Todos</option>
+      <option value="sem">Sem custo</option>
+      <option value="com">Com custo</option>
+    </select>
+
+    <span class="tbl-count" id="tblCount">{{ items|length }} produtos</span>
+  </div>
+
+  <!-- ── TABELA ────────────────────────────────────────────────────────────── -->
+  <div class="table-wrap">
+    <table id="costTable">
+      <thead>
+        <tr>
+          <th>Produto</th>
+          <th>Marca</th>
+          <th class="num">Preço ML</th>
+          <th class="num">Custo NF (R$)</th>
+          <th class="num">Alíquota (%)</th>
+          <th class="num">Comissão ML (%)</th>
+          <th class="num">Frete unit. (R$)</th>
+          <th class="num">Margem RT</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        {% set has_cost = item.unit_cost is not none %}
+        <tr class="{{ 'cost-set' if has_cost else 'cost-empty' }}"
+            data-id="{{ item.id }}"
+            data-price="{{ item.price or 0 }}"
+            data-title="{{ item.title|lower }}"
+            data-brand="{{ (item.marca or '')|lower }}"
+            data-has-cost="{{ 'com' if has_cost else 'sem' }}">
+
+          <!-- Produto -->
+          <td>
+            <span class="status-dot {{ 'dot-set' if has_cost else 'dot-empty' }}"></span>
+            <span class="td-title" title="{{ item.title }}">{{ item.title }}</span>
+            {% if not has_cost %}
+              <span class="badge-sem-custo">sem custo</span>
+            {% endif %}
+            <div class="td-id">{{ item.id }}</div>
+          </td>
+
+          <!-- Marca -->
+          <td>
+            <input class="marca-input"
+                   type="text"
+                   value="{{ item.marca or '' }}"
+                   placeholder="marca…"
+                   data-field="marca"
+                   oninput="markDirty(this)">
+          </td>
+
+          <!-- Preço ML -->
+          <td class="price-col">R$ {{ '%.2f'|format(item.price or 0) }}</td>
+
+          <!-- Custo NF -->
+          <td class="num">
+            <input class="cost-input" type="number" step="0.01" min="0"
+                   value="{{ '%.2f'|format(item.unit_cost) if has_cost else '' }}"
+                   placeholder="0.00"
+                   data-field="unit_cost"
+                   oninput="markDirty(this); recalcMargem(this)">
+          </td>
+
+          <!-- Alíquota -->
+          <td class="num">
+            <input class="cost-input" type="number" step="0.01" min="0" max="100"
+                   value="{{ '%.2f'|format(item.tax_rate * 100) if item.tax_rate is not none else '%.2f'|format(defaults.tax_rate * 100) }}"
+                   placeholder="{{ '%.2f'|format(defaults.tax_rate * 100) }}"
+                   data-field="tax_rate"
+                   oninput="markDirty(this); recalcMargem(this)">
+            <span class="tag-unit">%</span>
+          </td>
+
+          <!-- Comissão ML -->
+          <td class="num">
+            <input class="cost-input" type="number" step="0.01" min="0" max="100"
+                   value="{{ '%.2f'|format(item.ml_fee_rate * 100) if item.ml_fee_rate is not none else '%.2f'|format(defaults.ml_fee_rate * 100) }}"
+                   placeholder="{{ '%.2f'|format(defaults.ml_fee_rate * 100) }}"
+                   data-field="ml_fee_rate"
+                   oninput="markDirty(this); recalcMargem(this)">
+            <span class="tag-unit">%</span>
+          </td>
+
+          <!-- Frete -->
+          <td class="num">
+            <input class="cost-input" type="number" step="0.01" min="0"
+                   value="{{ '%.2f'|format(item.shipping_cost) if item.shipping_cost is not none else '0.00' }}"
+                   placeholder="0.00"
+                   data-field="shipping_cost"
+                   oninput="markDirty(this); recalcMargem(this)">
+          </td>
+
+          <!-- Margem RT -->
+          <td class="margem-cell" id="margem-{{ item.id }}">
+            {% if has_cost %}
+              {# Initial server-side margem calc #}
+              {% set p = item.price or 0 %}
+              {% set c = item.unit_cost or 0 %}
+              {% set fee = item.ml_fee_rate or defaults.ml_fee_rate %}
+              {% set tax = item.tax_rate or defaults.tax_rate %}
+              {% set ship = item.shipping_cost or 0 %}
+              {% set liq = p - (p * fee) - ship %}
+              {% set lucro = liq - c - (p * tax) %}
+              {% set m = (lucro / p * 100) if p > 0 else 0 %}
+              <span class="{% if m < 0 %}m-neg{% elif m < 10 %}m-low{% elif m < 20 %}m-mid{% else %}m-pos{% endif %}">
+                {{ '%.1f'|format(m) }}%
+              </span>
+            {% else %}
+              <span class="m-none">—</span>
+            {% endif %}
+          </td>
+
+          <!-- Histórico -->
+          <td>
+            <button class="btn-hist" type="button"
+                    onclick="showHistory('{{ item.id }}', '{{ item.title|truncate(40, true, '…') }}')">
+              ⏱
+            </button>
+          </td>
+
+        </tr>
+        {% else %}
+        <tr><td colspan="9" style="text-align:center;color:#333;padding:28px">
+          Nenhum item coletado. Rode a coleta primeiro.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<footer>AEGIS · {{ account.name }} · {{ account.seller_id }}</footer>
+
+<!-- ── HISTORY MODAL ──────────────────────────────────────────────────────── -->
+<div id="histModal" onclick="if(event.target===this)closeHistory()">
+  <div class="hist-box">
+    <div class="hist-title" id="histTitle">Histórico de Custo</div>
+    <div id="histBody"><div class="hist-empty">Carregando…</div></div>
+    <button class="btn-close-modal" onclick="closeHistory()">Fechar</button>
+  </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+const SELLER_ID = "{{ seller_id }}";
+const dirtyRows = new Set();   // item_id strings
+
+// ── Dirty tracking ───────────────────────────────────────────────────────────
+function markDirty(input) {
+  const tr = input.closest('tr');
+  const id = tr.dataset.id;
+  tr.classList.add('dirty');
+  dirtyRows.add(id);
+  updateSaveBtn();
+}
+
+function updateSaveBtn() {
+  const btn = document.getElementById('btnSaveAll');
+  const cnt = document.getElementById('dirtyCount');
+  cnt.textContent = dirtyRows.size;
+  btn.classList.toggle('visible', dirtyRows.size > 0);
+}
+
+// ── Margem em tempo real ─────────────────────────────────────────────────────
+function recalcMargem(changedInput) {
+  const tr    = changedInput.closest('tr');
+  const price = parseFloat(tr.dataset.price) || 0;
+  const id    = tr.dataset.id;
+
+  const get = field => {
+    const inp = tr.querySelector(`[data-field="${field}"]`);
+    return inp ? (parseFloat(inp.value) || 0) : 0;
+  };
+
+  const cost     = get('unit_cost');
+  const taxPct   = get('tax_rate');
+  const feePct   = get('ml_fee_rate');
+  const ship     = get('shipping_cost');
+
+  const cell = document.getElementById('margem-' + id);
+  if (!cell || price <= 0) { if (cell) cell.innerHTML = '<span class="m-none">—</span>'; return; }
+
+  const receita_liq = price - (price * feePct / 100) - ship;
+  const lucro       = receita_liq - cost - (price * taxPct / 100);
+  const margem      = lucro / price * 100;
+  const cls = margem < 0 ? 'm-neg' : margem < 10 ? 'm-low' : margem < 20 ? 'm-mid' : 'm-pos';
+
+  cell.innerHTML = `<span class="${cls}">${margem.toFixed(1)}%</span>`;
+}
+
+// Initialize all margin cells on load
+document.querySelectorAll('#costTable tbody tr[data-id]').forEach(tr => {
+  const anyInput = tr.querySelector('[data-field="unit_cost"]');
+  if (anyInput) recalcMargem(anyInput);
+});
+
+// ── Save all dirty rows ───────────────────────────────────────────────────────
+async function saveAll() {
+  if (dirtyRows.size === 0) return;
+
+  const btn = document.getElementById('btnSaveAll');
+  btn.disabled = true;
+  btn.textContent = 'Salvando…';
+
+  const payload = [];
+  dirtyRows.forEach(itemId => {
+    const tr = document.querySelector(`tr[data-id="${itemId}"]`);
+    if (!tr) return;
+    const get = field => {
+      const inp = tr.querySelector(`[data-field="${field}"]`);
+      return inp ? inp.value : '';
+    };
+    payload.push({
+      item_id:       itemId,
+      unit_cost:     parseFloat(get('unit_cost'))     || 0,
+      tax_rate:      parseFloat(get('tax_rate'))      || 0,
+      ml_fee_rate:   parseFloat(get('ml_fee_rate'))   || 14,
+      shipping_cost: parseFloat(get('shipping_cost')) || 0,
+      marca:         get('marca'),
+    });
+  });
+
+  try {
+    const res  = await fetch(`/custos/${SELLER_ID}/save-batch`, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify(payload),
+    });
+    const data = await res.json();
+
+    if (data.ok) {
+      // Clear dirty state
+      dirtyRows.forEach(id => {
+        const tr = document.querySelector(`tr[data-id="${id}"]`);
+        if (tr) { tr.classList.remove('dirty'); tr.classList.add('cost-set'); }
+      });
+      dirtyRows.clear();
+      updateSaveBtn();
+      showToast(`✅ ${data.saved} produto(s) salvos.`, 'success');
+      if (data.errors && data.errors.length > 0) {
+        showToast(`⚠️ ${data.errors.length} erro(s) — verifique o console.`, 'warn');
+        console.warn('Erros ao salvar:', data.errors);
+      }
+    } else {
+      showToast('❌ Erro ao salvar: ' + (data.error || 'desconhecido'), 'error');
+    }
+  } catch (e) {
+    showToast('❌ Falha na requisição: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Salvar tudo <span id="dirtyCount">' + dirtyRows.size + '</span>';
+  }
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function showToast(msg, type = 'success') {
+  const t = document.createElement('div');
+  t.style.cssText = `
+    position:fixed;bottom:24px;right:24px;z-index:999;
+    padding:12px 20px;border-radius:8px;font-size:13px;font-weight:600;
+    max-width:400px;word-break:break-word;
+    box-shadow:0 4px 20px rgba(0,0,0,.6);
+    ${type === 'success' ? 'background:#1a3a1a;color:#81c784;border:1px solid #2d5a2d;' :
+      type === 'warn'    ? 'background:#2a2000;color:#ffd54f;border:1px solid #554000;' :
+                           'background:#3a1212;color:#ef9a9a;border:1px solid #5a2020;'}
+  `;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+// ── History modal ─────────────────────────────────────────────────────────────
+async function showHistory(itemId, title) {
+  document.getElementById('histTitle').textContent = `Histórico — ${title}`;
+  document.getElementById('histBody').innerHTML = '<div class="hist-empty">Carregando…</div>';
+  document.getElementById('histModal').classList.add('open');
+
+  try {
+    const res  = await fetch(`/custos/${SELLER_ID}/history/${itemId}`);
+    const data = await res.json();
+    if (!data.length) {
+      document.getElementById('histBody').innerHTML = '<div class="hist-empty">Nenhuma alteração registrada.</div>';
+      return;
+    }
+    document.getElementById('histBody').innerHTML = data.map(h => `
+      <div class="hist-row">
+        <span class="hist-date">${h.changed_at}</span>
+        <span>
+          <span class="hist-old">${h.old_cost !== null ? 'R$ ' + parseFloat(h.old_cost).toFixed(2) : 'novo'}</span>
+          &nbsp;→&nbsp;
+          <span class="hist-new">R$ ${parseFloat(h.new_cost).toFixed(2)}</span>
+        </span>
+      </div>
+    `).join('');
+  } catch (e) {
+    document.getElementById('histBody').innerHTML = '<div class="hist-empty">Erro ao carregar histórico.</div>';
+  }
+}
+
+function closeHistory() {
+  document.getElementById('histModal').classList.remove('open');
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHistory(); });
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+function applyFilters() {
+  const q     = (document.getElementById('searchInput')?.value || '').toLowerCase();
+  const brand = (document.getElementById('brandFilter')?.value || '').toLowerCase();
+  const cost  = (document.getElementById('costFilter')?.value  || '');
+
+  const rows = document.querySelectorAll('#costTable tbody tr[data-id]');
+  let visible = 0;
+  rows.forEach(r => {
+    const titleOk = r.dataset.title.includes(q) || r.dataset.id?.toLowerCase().includes(q);
+    const brandOk = !brand || r.dataset.brand === brand;
+    const costOk  = !cost  || r.dataset.hasCost === cost;
+    const show = titleOk && brandOk && costOk;
+    r.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('tblCount').textContent = visible + ' produtos';
+}
+</script>
+
+</body>
+</html>

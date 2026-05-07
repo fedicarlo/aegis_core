@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AEGIS — Promoções · {{ account.name }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d0d0d;
+      --surface: #111111;
+      --surface2:#161616;
+      --border:  #1e1e1e;
+      --border2: #2a2a2a;
+      --text:    #e0e0e0;
+      --muted:   #555555;
+      --orange:  #f5a623;
+      --green:   #4caf50;
+      --red:     #f44336;
+      --yellow:  #ffd54f;
+      --blue:    #64b5f6;
+      --teal:    #4dd0e1;
+      --purple:  #ce93d8;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg); color: var(--text); min-height: 100vh;
+    }
+
+    header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0 40px; height: 56px;
+      display: flex; align-items: center; gap: 20px;
+      position: sticky; top: 0; z-index: 200;
+    }
+    .logo {
+      font-size: 18px; font-weight: 700; letter-spacing: 4px;
+      color: #fff; text-decoration: none;
+    }
+    .logo span { color: var(--orange); }
+    .header-title {
+      font-size: 12px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 2px;
+    }
+    .header-actions { display: flex; gap: 8px; margin-left: auto; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 600; padding: 7px 14px;
+      border-radius: 6px; border: none; cursor: pointer;
+      text-decoration: none; transition: opacity .15s; white-space: nowrap;
+    }
+    .btn:hover { opacity: .8; }
+    .btn-ghost { background: #1a1a1a; color: #777; border: 1px solid var(--border2); }
+
+    main { padding: 28px 40px 60px; }
+
+    .flashes { padding: 12px 40px 0; display: flex; flex-direction: column; gap: 8px; }
+    .flash { padding: 10px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; }
+    .flash.success { background: #1a3a1a; border: 1px solid var(--green); color: #81c784; }
+    .flash.error   { background: #3a1212; border: 1px solid var(--red);   color: #ef9a9a; }
+    .flash.info    { background: #1a2030; border: 1px solid var(--blue);  color: #90caf9; }
+
+    /* ── SUMMARY GRID ─────────────────────────────────────────────────────── */
+    .summary-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 1px; background: var(--border);
+      border-radius: 10px; overflow: hidden; margin-bottom: 24px;
+    }
+    .sum-cell {
+      background: var(--surface); padding: 18px 20px;
+    }
+    .sum-label {
+      font-size: 9px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--muted); margin-bottom: 8px;
+    }
+    .sum-val {
+      font-size: 28px; font-weight: 700; line-height: 1; letter-spacing: -0.5px;
+    }
+    .sum-sub { font-size: 11px; color: #444; margin-top: 5px; }
+
+    /* ── NO PROMOS ────────────────────────────────────────────────────────── */
+    .empty-state {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 48px;
+      text-align: center; color: #333; font-size: 13px;
+    }
+    .empty-state strong { display: block; font-size: 16px; color: #444; margin-bottom: 8px; }
+
+    /* ── TOOLBAR ──────────────────────────────────────────────────────────── */
+    .toolbar {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+    }
+    .toolbar-title {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--muted);
+    }
+    input.search {
+      background: #1a1a1a; border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 12px;
+      padding: 6px 10px; width: 220px; outline: none;
+    }
+    input.search:focus { border-color: #444; }
+    .result-count { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+    /* ── TABLE ────────────────────────────────────────────────────────────── */
+    .table-wrap {
+      border-radius: 10px; border: 1px solid var(--border); overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead { background: var(--surface2); }
+    thead tr { border-bottom: 1px solid #222; }
+    th {
+      padding: 10px 14px; text-align: left;
+      font-size: 10px; font-weight: 700;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+      white-space: nowrap;
+    }
+    th.num, td.num { text-align: right; }
+    td { padding: 9px 14px; border-bottom: 1px solid var(--border); }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #121212; }
+    tbody tr.row-negative { background: rgba(244,67,54,.04); }
+    tbody tr.row-negative:hover { background: rgba(244,67,54,.07); }
+
+    .td-title {
+      font-size: 12px; color: #ccc;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      max-width: 280px;
+    }
+    .td-id  { font-size: 10px; color: #2a2a2a; font-family: monospace; }
+    .td-sub { font-size: 10px; color: #333; margin-top: 2px; }
+
+    .promo-badge {
+      display: inline-block; padding: 2px 7px; border-radius: 4px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; background: #1a1a2a; color: var(--purple);
+      border: 1px solid #2a2040;
+    }
+
+    .price-orig { color: #555; text-decoration: line-through; font-size: 11px; }
+    .price-promo { font-weight: 700; color: var(--teal); }
+
+    .disc-badge {
+      display: inline-block; padding: 2px 7px; border-radius: 4px;
+      font-size: 11px; font-weight: 700;
+    }
+    .disc-low  { background: rgba(76,175,80,.1);  color: var(--green); }
+    .disc-mid  { background: rgba(255,213,79,.1); color: var(--yellow); }
+    .disc-high { background: rgba(244,67,54,.1);  color: var(--red); }
+
+    .margem-badge {
+      display: inline-block; padding: 3px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 700;
+    }
+    .m-neg  { background: rgba(244,67,54,.12);   color: var(--red); }
+    .m-low  { background: rgba(255,213,79,.10);  color: var(--yellow); }
+    .m-mid  { background: rgba(100,181,246,.10); color: var(--blue); }
+    .m-good { background: rgba(76,175,80,.10);   color: var(--green); }
+    .m-none { background: #161616;               color: #333; }
+
+    .delta-neg { color: var(--red); font-size: 11px; }
+    .delta-ok  { color: #555; font-size: 11px; }
+
+    .no-cost { color: #2a2a2a; font-size: 11px; }
+
+    footer {
+      text-align: center; font-size: 11px; color: #222;
+      padding: 20px; border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="{{ url_for('web.index') }}" class="logo">AE<span>G</span>IS</a>
+  <span class="header-title">Rentabilidade de Promoções · {{ account.name }}</span>
+  <div class="header-actions">
+    <a href="{{ url_for('web.dashboard', account=account.name) }}" class="btn btn-ghost">← Dashboard</a>
+    <a href="{{ url_for('costs.custos', seller_id=seller_id) }}"   class="btn btn-ghost">Custos</a>
+    <a href="{{ url_for('costs.apuracao', seller_id=seller_id) }}" class="btn btn-ghost">Apuração</a>
+  </div>
+</header>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div class="flashes">
+    {% for cat, msg in messages %}
+    <div class="flash {{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endwith %}
+
+<main>
+
+  <!-- ── SUMMARY ──────────────────────────────────────────────────────────── -->
+  <div class="summary-grid">
+    <div class="sum-cell">
+      <div class="sum-label">Itens em Promoção</div>
+      <div class="sum-val" style="color:var(--teal)">{{ summary.total }}</div>
+      <div class="sum-sub">promoções ativas</div>
+    </div>
+    <div class="sum-cell">
+      <div class="sum-label">Com Custo Cadastrado</div>
+      <div class="sum-val" style="color:{{ '#4caf50' if summary.with_cost == summary.total else '#ffd54f' }}">
+        {{ summary.with_cost }}
+      </div>
+      <div class="sum-sub">
+        {% if summary.with_cost < summary.total %}
+          <a href="{{ url_for('costs.custos', seller_id=seller_id) }}"
+             style="color:var(--orange);text-decoration:none">
+            {{ summary.total - summary.with_cost }} sem custo → configurar
+          </a>
+        {% else %}
+          todos com custo
+        {% endif %}
+      </div>
+    </div>
+    <div class="sum-cell">
+      <div class="sum-label">Desconto Médio</div>
+      <div class="sum-val" style="color:var(--yellow)">{{ summary.avg_discount }}%</div>
+      <div class="sum-sub">sobre preço original</div>
+    </div>
+    <div class="sum-cell">
+      <div class="sum-label">Margem Negativa</div>
+      {% if summary.negative > 0 %}
+        <div class="sum-val" style="color:var(--red)">{{ summary.negative }}</div>
+        <div class="sum-sub" style="color:var(--red)">produtos no prejuízo</div>
+      {% else %}
+        <div class="sum-val" style="color:#2a2a2a">0</div>
+        <div class="sum-sub">nenhuma margem negativa</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if promos %}
+
+  <!-- ── TABELA ────────────────────────────────────────────────────────────── -->
+  <div class="toolbar">
+    <span class="toolbar-title">Breakdown por produto</span>
+    <input class="search" id="searchInput" type="text" placeholder="Buscar produto…"
+           oninput="filterTable(this.value)">
+    <span class="result-count" id="resultCount">{{ promos|length }} produtos</span>
+  </div>
+
+  <div class="table-wrap">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th>Produto</th>
+          <th>Tipo</th>
+          <th class="num">Preço Original</th>
+          <th class="num">Preço Promoção</th>
+          <th class="num">Desconto</th>
+          <th class="num">Margem Original</th>
+          <th class="num">Margem Promoção</th>
+          <th class="num">Δ Margem</th>
+          <th class="num">Lucro Unit.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in promos %}
+        <tr class="{{ 'row-negative' if p.is_negative else '' }}"
+            data-title="{{ p.title|lower }}">
+
+          <td>
+            <div class="td-title" title="{{ p.title }}">
+              {% if p.is_negative %}
+                <span style="color:var(--red);font-size:10px" title="Margem negativa em promoção">⚠ </span>
+              {% endif %}
+              {{ p.title }}
+            </div>
+            <div class="td-id">{{ p.item_id }}</div>
+          </td>
+
+          <td>
+            <span class="promo-badge">{{ p.promotion_type or '—' }}</span>
+          </td>
+
+          <td class="num">
+            <span class="price-orig">{{ p.original_price | brl }}</span>
+          </td>
+
+          <td class="num">
+            <span class="price-promo">{{ p.promo_price | brl }}</span>
+          </td>
+
+          <td class="num">
+            {% if p.discount_pct < 15 %}
+              <span class="disc-badge disc-low">{{ p.discount_pct }}%</span>
+            {% elif p.discount_pct < 30 %}
+              <span class="disc-badge disc-mid">{{ p.discount_pct }}%</span>
+            {% else %}
+              <span class="disc-badge disc-high">{{ p.discount_pct }}%</span>
+            {% endif %}
+          </td>
+
+          <!-- Margem no preço original -->
+          <td class="num">
+            {% if not p.has_cost %}
+              <span class="no-cost">sem custo</span>
+            {% elif p.margem_original is none %}
+              <span class="margem-badge m-none">—</span>
+            {% elif p.margem_original < 0 %}
+              <span class="margem-badge m-neg">{{ p.margem_original }}%</span>
+            {% elif p.margem_original < 10 %}
+              <span class="margem-badge m-low">{{ p.margem_original }}%</span>
+            {% elif p.margem_original < 20 %}
+              <span class="margem-badge m-mid">{{ p.margem_original }}%</span>
+            {% else %}
+              <span class="margem-badge m-good">{{ p.margem_original }}%</span>
+            {% endif %}
+          </td>
+
+          <!-- Margem no preço promo -->
+          <td class="num">
+            {% if not p.has_cost %}
+              <span class="no-cost">sem custo</span>
+            {% elif p.margem_promo is none %}
+              <span class="margem-badge m-none">—</span>
+            {% elif p.margem_promo < 0 %}
+              <span class="margem-badge m-neg">{{ p.margem_promo }}%</span>
+            {% elif p.margem_promo < 10 %}
+              <span class="margem-badge m-low">{{ p.margem_promo }}%</span>
+            {% elif p.margem_promo < 20 %}
+              <span class="margem-badge m-mid">{{ p.margem_promo }}%</span>
+            {% else %}
+              <span class="margem-badge m-good">{{ p.margem_promo }}%</span>
+            {% endif %}
+          </td>
+
+          <!-- Delta margem -->
+          <td class="num">
+            {% if p.delta_margem is none %}
+              <span style="color:#2a2a2a">—</span>
+            {% elif p.delta_margem < 0 %}
+              <span class="delta-neg">▼ {{ p.delta_margem | abs }}pp</span>
+            {% else %}
+              <span class="delta-ok">{{ p.delta_margem }}pp</span>
+            {% endif %}
+          </td>
+
+          <!-- Lucro unitário no preço promo -->
+          <td class="num">
+            {% if not p.has_cost %}
+              <span class="no-cost">—</span>
+            {% elif p.lucro_unit_promo is none %}
+              <span style="color:#2a2a2a">—</span>
+            {% elif p.lucro_unit_promo < 0 %}
+              <span style="color:var(--red);font-weight:700">
+                {{ p.lucro_unit_promo | brl }}
+              </span>
+            {% else %}
+              <span style="color:var(--green)">{{ p.lucro_unit_promo | brl }}</span>
+            {% endif %}
+          </td>
+
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% else %}
+
+  <div class="empty-state">
+    <strong>Nenhuma promoção ativa encontrada.</strong>
+    Rode a coleta para sincronizar as promoções com a API do Mercado Livre.
+  </div>
+
+  {% endif %}
+
+</main>
+
+<footer>AEGIS · {{ account.name }} · {{ account.seller_id }}</footer>
+
+<script>
+function filterTable(val) {
+  const q = val.toLowerCase();
+  const rows = document.querySelectorAll('#tbl tbody tr[data-title]');
+  let visible = 0;
+  rows.forEach(r => {
+    const show = r.dataset.title.includes(q);
+    r.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('resultCount').textContent = visible + ' produtos';
+}
+</script>
+</body>
+</html>

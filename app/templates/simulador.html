@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulador de Precificação — AEGIS</title>
+  <style>
+    :root {
+      --bg: #0d0d0d; --bg2: #141414; --bg3: #1a1a1a;
+      --orange: #f5a623; --green: #4caf50; --red: #f44336;
+      --teal: #26c6da; --purple: #ab47bc; --yellow: #ffc107;
+      --text: #e0e0e0; --muted: #888; --border: #2a2a2a;
+      --card: #181818;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; font-size: 14px; min-height: 100vh; }
+
+    /* Nav */
+    .nav { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 12px 28px; display: flex; align-items: center; gap: 18px; position: sticky; top: 0; z-index: 100; }
+    .nav-brand { color: var(--orange); font-weight: 700; font-size: 18px; letter-spacing: 1px; text-decoration: none; }
+    .nav a { color: var(--muted); text-decoration: none; font-size: 13px; }
+    .nav a:hover { color: var(--text); }
+    .nav-sep { color: var(--border); }
+    .nav-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+
+    /* Layout */
+    .page { max-width: 1300px; margin: 0 auto; padding: 28px 24px 60px; }
+
+    /* Page header */
+    .page-header { margin-bottom: 28px; }
+    .page-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .page-sub   { font-size: 13px; color: var(--muted); }
+
+    /* Search bar */
+    .search-bar {
+      display: flex; gap: 10px; margin-bottom: 28px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px 20px; align-items: flex-end; flex-wrap: wrap;
+    }
+    .search-bar .field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 260px; }
+    .search-bar label  { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    .search-bar input  {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 7px; color: var(--text); font-size: 14px;
+      padding: 9px 14px; outline: none; width: 100%;
+    }
+    .search-bar input:focus { border-color: var(--orange); }
+    .btn-search {
+      background: var(--orange); color: #000; font-weight: 700; font-size: 13px;
+      padding: 10px 22px; border: none; border-radius: 7px; cursor: pointer;
+      transition: opacity .15s; white-space: nowrap; align-self: flex-end;
+    }
+    .btn-search:hover { opacity: .85; }
+    .btn-search:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* Main grid: left=calculator, right=results */
+    .main-grid { display: grid; grid-template-columns: 380px 1fr; gap: 20px; align-items: start; }
+
+    /* Calculator panel */
+    .calc-panel {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 20px; position: sticky; top: 72px;
+    }
+    .panel-title { font-size: 12px; font-weight: 700; text-transform: uppercase;
+                   letter-spacing: 1px; color: var(--orange); margin-bottom: 18px; }
+    .form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .form-row label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+    .form-row input, .form-row select {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 7px;
+      color: var(--text); font-size: 13px; padding: 8px 12px; outline: none; width: 100%;
+    }
+    .form-row input:focus, .form-row select:focus { border-color: var(--orange); }
+    .form-row .hint { font-size: 11px; color: #444; margin-top: 3px; }
+    .input-suffix { display: flex; align-items: center; gap: 0; }
+    .input-suffix input { border-radius: 7px 0 0 7px; }
+    .input-suffix .sfx {
+      background: var(--bg3); border: 1px solid var(--border); border-left: none;
+      border-radius: 0 7px 7px 0; padding: 8px 10px; font-size: 12px; color: var(--muted);
+      white-space: nowrap;
+    }
+
+    /* Target prices */
+    .targets { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
+    .target-row {
+      display: flex; justify-content: space-between; align-items: center;
+      background: var(--bg3); border-radius: 8px; padding: 11px 14px;
+      border: 1px solid var(--border);
+    }
+    .target-row.highlight { border-color: var(--orange); }
+    .target-label { font-size: 12px; color: var(--muted); }
+    .target-margin { font-size: 11px; }
+    .target-price { font-size: 18px; font-weight: 700; }
+    .tp-zero  { color: var(--red); }
+    .tp-10    { color: #ff9800; }
+    .tp-20    { color: var(--yellow); }
+    .tp-30    { color: var(--green); }
+    .vs-market { font-size: 11px; margin-left: 8px; }
+    .vs-ok   { color: var(--green); }
+    .vs-warn { color: #ff9800; }
+    .vs-bad  { color: var(--red); }
+
+    /* Divider */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+    /* Market panel */
+    .market-panel { display: flex; flex-direction: column; gap: 16px; }
+
+    /* Market summary cards */
+    .mkt-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .mkt-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+    .mkt-card .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px; }
+    .mkt-card .val { font-size: 22px; font-weight: 700; }
+
+    /* Results table */
+    .results-panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .results-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+    .results-title  { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--orange); }
+    .results-count  { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th { font-size: 10px; text-transform: uppercase; color: var(--muted); letter-spacing: .8px;
+               padding: 8px 14px; text-align: left; border-bottom: 1px solid var(--border); background: var(--bg3); }
+    tbody td { padding: 9px 14px; border-bottom: 1px solid var(--border); }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: rgba(245,166,35,.03); }
+    .item-title { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-title a { color: var(--text); text-decoration: none; }
+    .item-title a:hover { color: var(--orange); }
+
+    .tag { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 700; }
+    .tag-full    { background: rgba(38,198,218,.15); color: var(--teal);   border: 1px solid rgba(38,198,218,.3); }
+    .tag-catalog { background: rgba(171,71,188,.15); color: var(--purple); border: 1px solid rgba(171,71,188,.3); }
+    .tag-free    { background: rgba(76,175,80,.1);   color: var(--green);  border: 1px solid rgba(76,175,80,.3); }
+    .tag-norm    { background: rgba(255,255,255,.04); color: #555; border: 1px solid #222; }
+
+    /* Loading / Empty */
+    .state-box { text-align: center; padding: 48px 24px; color: var(--muted); }
+    .state-icon { font-size: 36px; margin-bottom: 10px; }
+    .spinner { display: inline-block; width: 32px; height: 32px; border: 3px solid #2a2a2a;
+               border-top-color: var(--orange); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 960px) {
+      .main-grid { grid-template-columns: 1fr; }
+      .calc-panel { position: static; }
+      .mkt-summary { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a class="nav-brand" href="/">AEGIS</a>
+  <span class="nav-sep">|</span>
+  <a href="/dashboard?account={{ account.name }}">Dashboard</a>
+  <a href="/calendario/{{ seller_id }}">Calendário</a>
+  <a href="/relatorio/{{ seller_id }}">Relatório</a>
+  <a href="/custos/{{ seller_id }}">Custos</a>
+  <a href="/simulador/{{ seller_id }}" style="color:var(--orange)">Simulador</a>
+  <div class="nav-right">
+    <span style="color:var(--green);font-size:12px">● {{ account.name }}</span>
+  </div>
+</nav>
+
+<div class="page">
+
+  <div class="page-header">
+    <h1 class="page-title">Simulador de Precificação</h1>
+    <p class="page-sub">Busque um produto, veja os preços de mercado e calcule seu ponto de equilíbrio em tempo real.</p>
+  </div>
+
+  <!-- Search bar -->
+  <div class="search-bar">
+    <div class="field">
+      <label>Buscar produto no Mercado Livre</label>
+      <input type="text" id="queryInput" placeholder="Ex: Iron Liquid True Source 30ml"
+             value="{{ query }}" onkeydown="if(event.key==='Enter') doSearch()">
+    </div>
+    <button class="btn-search" id="btnSearch" onclick="doSearch()">Buscar preços</button>
+  </div>
+
+  <!-- Main grid -->
+  <div class="main-grid">
+
+    <!-- Left: Calculator -->
+    <div class="calc-panel">
+      <div class="panel-title">Calculadora de Margem</div>
+
+      <div class="form-row">
+        <label>Custo NF (R$)</label>
+        <div class="input-suffix">
+          <input type="number" id="inCusto" min="0" step="0.01" placeholder="0.00" oninput="recalc()">
+          <span class="sfx">R$</span>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Alíquota fiscal</label>
+        <div class="input-suffix">
+          <input type="number" id="inAliq" min="0" max="100" step="0.01" value="6.00" oninput="recalc()">
+          <span class="sfx">%</span>
+        </div>
+        <span class="hint">Imposto sobre faturamento (Simples, Lucro Presumido…)</span>
+      </div>
+
+      <div class="form-row">
+        <label>Comissão ML estimada</label>
+        <div class="input-suffix">
+          <input type="number" id="inComissao" min="0" max="30" step="0.1" value="14.0" oninput="recalc()">
+          <span class="sfx">%</span>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Frete por unidade (R$)</label>
+        <div class="input-suffix">
+          <input type="number" id="inFrete" min="0" step="0.01" value="0.00" oninput="recalc()">
+          <span class="sfx">R$</span>
+        </div>
+        <span class="hint">Custo de frete estimado embutido no preço</span>
+      </div>
+
+      <!-- Comissões por categoria (preset) -->
+      <div class="form-row">
+        <label>Preset de categoria</label>
+        <select id="selCategoria" onchange="applyPreset()">
+          <option value="">— selecionar —</option>
+          <option value="14">Saúde e Beleza — 14%</option>
+          <option value="13">Suplementos / Vitaminas — 13%</option>
+          <option value="16">Eletrônicos / Celulares — 16%</option>
+          <option value="12">Informática — 12%</option>
+          <option value="15">Eletrodomésticos — 15%</option>
+          <option value="11">Livros / Papelaria — 11%</option>
+          <option value="10">Alimentos e Bebidas — 10%</option>
+          <option value="16">Brinquedos — 16%</option>
+          <option value="16">Vestuário — 16%</option>
+          <option value="14">Casa e Jardim — 14%</option>
+        </select>
+        <span class="hint">Preenche comissão ML automaticamente</span>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Target prices -->
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">
+        Preços-alvo (calculado em tempo real)
+      </div>
+      <div class="targets">
+        <div class="target-row">
+          <div>
+            <div class="target-label">Ponto de equilíbrio</div>
+            <div class="target-margin" style="color:var(--red)">Margem 0%</div>
+          </div>
+          <div style="text-align:right">
+            <div class="target-price tp-zero" id="tp0">—</div>
+            <div class="vs-market" id="vs0"></div>
+          </div>
+        </div>
+        <div class="target-row">
+          <div>
+            <div class="target-label">Margem mínima saudável</div>
+            <div class="target-margin" style="color:#ff9800">Margem 10%</div>
+          </div>
+          <div style="text-align:right">
+            <div class="target-price tp-10" id="tp10">—</div>
+            <div class="vs-market" id="vs10"></div>
+          </div>
+        </div>
+        <div class="target-row highlight">
+          <div>
+            <div class="target-label">Margem recomendada</div>
+            <div class="target-margin" style="color:var(--yellow)">Margem 20%</div>
+          </div>
+          <div style="text-align:right">
+            <div class="target-price tp-20" id="tp20">—</div>
+            <div class="vs-market" id="vs20"></div>
+          </div>
+        </div>
+        <div class="target-row">
+          <div>
+            <div class="target-label">Margem excelente</div>
+            <div class="target-margin" style="color:var(--green)">Margem 30%</div>
+          </div>
+          <div style="text-align:right">
+            <div class="target-price tp-30" id="tp30">—</div>
+            <div class="vs-market" id="vs30"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Current price input for margem check -->
+      <hr class="divider">
+      <div class="form-row">
+        <label>Verificar margem de um preço específico</label>
+        <div class="input-suffix">
+          <input type="number" id="inPreco" min="0" step="0.01" placeholder="Ex: 74.93" oninput="recalc()">
+          <span class="sfx">R$</span>
+        </div>
+      </div>
+      <div id="margemCheck" style="background:var(--bg3);border-radius:8px;padding:12px;margin-top:8px;display:none">
+        <div style="display:flex;justify-content:space-between">
+          <span style="font-size:12px;color:var(--muted)">Margem a este preço</span>
+          <span id="margemCheckVal" style="font-size:18px;font-weight:700"></span>
+        </div>
+        <div id="margemCheckDetail" style="font-size:11px;color:#444;margin-top:6px;line-height:1.6"></div>
+      </div>
+    </div>
+
+    <!-- Right: Market results -->
+    <div class="market-panel" id="marketPanel">
+      <div class="state-box" id="stateEmpty">
+        <div class="state-icon">🔍</div>
+        <div>Busque um produto para ver os preços de mercado</div>
+        <div style="font-size:12px;margin-top:6px">Os preços serão usados para comparar com seu custo em tempo real</div>
+      </div>
+    </div>
+
+  </div>
+
+</div><!-- /page -->
+
+<script>
+const SELLER_ID = "{{ seller_id }}";
+let marketAvg = null;   // set after search, used by recalc()
+
+// ── Presets ──────────────────────────────────────────────────────────────────
+function applyPreset() {
+  const v = document.getElementById('selCategoria').value;
+  if (v) { document.getElementById('inComissao').value = v; recalc(); }
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+async function doSearch() {
+  const q = document.getElementById('queryInput').value.trim();
+  if (!q) return;
+
+  const btn   = document.getElementById('btnSearch');
+  const panel = document.getElementById('marketPanel');
+  btn.disabled = true;
+  btn.textContent = 'Buscando…';
+  panel.innerHTML = '<div class="state-box"><div class="spinner"></div><div style="margin-top:14px">Consultando mercado…</div></div>';
+
+  try {
+    const res  = await fetch(`/simulador/${SELLER_ID}/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+
+    if (!data.ok) {
+      panel.innerHTML = `<div class="state-box"><div class="state-icon">❌</div><div>${data.error || 'Erro desconhecido'}</div></div>`;
+      return;
+    }
+
+    const s = data.summary;
+    if (!s || !s.count) {
+      panel.innerHTML = `<div class="state-box"><div class="state-icon">🤷</div><div>Nenhum resultado encontrado para "<strong>${q}</strong>"</div></div>`;
+      return;
+    }
+
+    marketAvg = s.avg;
+    recalc();
+
+    // Build market summary cards
+    const cards = `
+      <div class="mkt-summary">
+        <div class="mkt-card"><div class="lbl">Mínimo</div><div class="val" style="color:var(--green)">R$ ${fmt(s.min)}</div></div>
+        <div class="mkt-card"><div class="lbl">Mediana</div><div class="val" style="color:var(--orange)">R$ ${fmt(s.median)}</div></div>
+        <div class="mkt-card"><div class="lbl">Média</div><div class="val" style="color:var(--orange)">R$ ${fmt(s.avg)}</div></div>
+        <div class="mkt-card"><div class="lbl">Máximo</div><div class="val" style="color:var(--muted)">R$ ${fmt(s.max)}</div></div>
+      </div>`;
+
+    // Build results table rows
+    const rows = data.items.map((r, i) => {
+      const logTag = r.logistic_type === 'fulfillment'
+        ? '<span class="tag tag-full">FULL</span>'
+        : r.free_shipping ? '<span class="tag tag-free">Grátis</span>'
+        : '<span class="tag tag-norm">Normal</span>';
+      const catTag = r.is_catalog ? '<span class="tag tag-catalog">Catálogo</span>' : '';
+      const delta  = s.avg > 0 ? ((r.price - s.avg) / s.avg * 100) : 0;
+      const dColor = delta > 5 ? 'var(--red)' : delta < -5 ? 'var(--green)' : '#888';
+      const dLabel = delta > 5 ? `+${delta.toFixed(1)}%`
+                   : delta < -5 ? `${delta.toFixed(1)}%` : '≈ média';
+      const link   = r.permalink ? `<a href="${r.permalink}" target="_blank" rel="noopener">${r.title}</a>` : r.title;
+      return `<tr>
+        <td style="color:var(--muted);font-weight:700">${i+1}</td>
+        <td><div class="item-title">${link}</div>
+            <div style="font-size:10px;color:var(--muted)">${r.seller_nickname}</div></td>
+        <td style="font-weight:700">R$ ${fmt(r.price)}</td>
+        <td style="color:${dColor};font-size:12px">${dLabel}</td>
+        <td style="color:var(--muted)">${r.sold_quantity}</td>
+        <td>${logTag} ${catTag}</td>
+      </tr>`;
+    }).join('');
+
+    panel.innerHTML = cards + `
+      <div class="results-panel">
+        <div class="results-header">
+          <span class="results-title">Resultados — "${q}"</span>
+          <span class="results-count">${s.count} anúncios</span>
+        </div>
+        <table>
+          <thead><tr>
+            <th>#</th><th>Produto</th><th>Preço</th><th>vs. média</th><th>Vendas</th><th>Envio</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+
+  } catch (e) {
+    panel.innerHTML = `<div class="state-box"><div class="state-icon">❌</div><div>Falha na requisição: ${e.message}</div></div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Buscar preços';
+  }
+}
+
+// ── Pricing calculator ────────────────────────────────────────────────────────
+function recalc() {
+  const custo    = parseFloat(document.getElementById('inCusto').value)    || 0;
+  const aliq     = parseFloat(document.getElementById('inAliq').value)     || 0;
+  const comissao = parseFloat(document.getElementById('inComissao').value) || 0;
+  const frete    = parseFloat(document.getElementById('inFrete').value)    || 0;
+
+  // Preço mínimo para margem M%:
+  // preço = (custo + frete) / (1 - comissao/100 - aliq/100 - M/100)
+  // Derivação: lucro = preço - preço*(comissao+aliq+M)/100 - custo - frete = 0
+  // → preço*(1 - (comissao+aliq)/100) = custo + frete + preço*(M/100)
+  // → preço = (custo+frete) / (1 - (comissao+aliq+M)/100)
+
+  const fixedDeductions = (comissao + aliq) / 100;
+
+  function targetPrice(marginPct) {
+    const denom = 1 - fixedDeductions - marginPct / 100;
+    if (denom <= 0) return null;
+    return (custo + frete) / denom;
+  }
+
+  function vsMarket(price) {
+    if (!marketAvg || !price) return '';
+    const delta = (price - marketAvg) / marketAvg * 100;
+    if (delta > 10)  return `<span class="vs-bad">${delta.toFixed(1)}% acima média</span>`;
+    if (delta < -10) return `<span class="vs-ok">${Math.abs(delta).toFixed(1)}% abaixo média</span>`;
+    return `<span class="vs-warn">próximo da média</span>`;
+  }
+
+  const targets = [
+    { id: 'tp0',  pct: 0  },
+    { id: 'tp10', pct: 10 },
+    { id: 'tp20', pct: 20 },
+    { id: 'tp30', pct: 30 },
+  ];
+
+  targets.forEach(({ id, pct }) => {
+    const price = targetPrice(pct);
+    const el    = document.getElementById(id);
+    const vsEl  = document.getElementById('vs' + pct);
+    if (el)  el.textContent  = price !== null && custo > 0 ? 'R$ ' + fmt(price) : '—';
+    if (vsEl) vsEl.innerHTML = price !== null ? vsMarket(price) : '';
+  });
+
+  // Check a specific price
+  const precoInput = parseFloat(document.getElementById('inPreco').value) || 0;
+  const checkBox   = document.getElementById('margemCheck');
+  if (precoInput > 0 && custo > 0) {
+    checkBox.style.display = 'block';
+    const receita_liq = precoInput * (1 - comissao / 100) - frete;
+    const lucro       = receita_liq - custo - precoInput * (aliq / 100);
+    const margem      = lucro / precoInput * 100;
+    const color       = margem < 0 ? 'var(--red)' : margem < 10 ? '#ff9800' : margem < 20 ? 'var(--yellow)' : 'var(--green)';
+    document.getElementById('margemCheckVal').style.color   = color;
+    document.getElementById('margemCheckVal').textContent   = margem.toFixed(1) + '%';
+    document.getElementById('margemCheckDetail').innerHTML  =
+      `Receita líq.: R$ ${fmt(receita_liq)} &nbsp;|&nbsp; Custo: R$ ${fmt(custo)} &nbsp;|&nbsp;` +
+      ` Imposto: R$ ${fmt(precoInput * aliq / 100)} &nbsp;|&nbsp; Lucro: R$ ${fmt(lucro)}`;
+  } else {
+    checkBox.style.display = 'none';
+  }
+}
+
+function fmt(v) { return parseFloat(v).toFixed(2); }
+
+// Auto-search if query provided
+{% if query %}
+window.addEventListener('DOMContentLoaded', () => doSearch());
+{% endif %}
+</script>
+
+</body>
+</html>

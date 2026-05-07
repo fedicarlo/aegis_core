@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Financeiro — {{ account.name }} — AEGIS</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d0d0d; --bg2: #111; --bg3: #181818; --bg4: #1e1e1e;
+      --orange: #f5a623; --green: #4caf50; --red: #f44336;
+      --teal: #26c6da; --yellow: #ffd54f; --blue: #64b5f6; --purple: #ab47bc;
+      --text: #e0e0e0; --muted: #666; --border: #242424;
+      --card-bg: #141414;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; font-size: 14px; }
+
+    /* Nav */
+    .nav { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 12px 24px;
+           display: flex; align-items: center; gap: 20px; position: sticky; top: 0; z-index: 100; }
+    .nav-brand { color: var(--orange); font-weight: 700; font-size: 18px; letter-spacing: 1px; text-decoration: none; }
+    .nav a { color: var(--muted); text-decoration: none; font-size: 13px; }
+    .nav a:hover { color: var(--text); }
+    .nav-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+    .btn-sm { padding: 5px 13px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px;
+               font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+    .btn-orange { background: var(--orange); color: #000; }
+    .btn-ghost  { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    .btn-ghost:hover { color: var(--text); border-color: #444; }
+
+    /* Page */
+    .page { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+    /* Period tabs */
+    .period-tabs { display: flex; gap: 6px; margin-bottom: 24px; align-items: center; }
+    .period-tabs .lbl { font-size: 11px; color: var(--muted); margin-right: 4px; }
+    .tab { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border);
+           color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 600;
+           text-decoration: none; transition: all .15s; }
+    .tab:hover { color: var(--text); border-color: #444; }
+    .tab.active { background: var(--orange); color: #000; border-color: var(--orange); }
+
+    /* Section */
+    .section { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
+                padding: 20px 24px; margin-bottom: 20px; }
+    .section-title { font-size: 13px; font-weight: 700; color: var(--muted);
+                      text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 16px; }
+
+    /* KPI cards */
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    .kpi { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+           padding: 14px 16px; }
+    .kpi .lbl { font-size: 11px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .8px; }
+    .kpi .val { font-size: 22px; font-weight: 700; }
+    .kpi .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .kpi.green { border-color: rgba(76,175,80,.4); }
+    .kpi.green .val { color: var(--green); }
+    .kpi.yellow { border-color: rgba(255,213,79,.35); }
+    .kpi.yellow .val { color: var(--yellow); }
+    .kpi.red { border-color: rgba(244,67,54,.35); }
+    .kpi.red .val { color: var(--red); }
+    .kpi.teal .val { color: var(--teal); }
+    .kpi.orange .val { color: var(--orange); }
+
+    /* Collect button */
+    .collect-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+    #collectStatus { font-size: 12px; color: var(--muted); }
+
+    /* Chart */
+    .chart-wrap { height: 220px; position: relative; }
+
+    /* Table */
+    .tbl-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); margin-top: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead tr { background: var(--bg4); }
+    th { padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600;
+         color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
+         border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+
+    /* Status badges */
+    .badge { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .badge-approved  { background: rgba(76,175,80,.18); color: var(--green); border: 1px solid rgba(76,175,80,.4); }
+    .badge-pending   { background: rgba(255,213,79,.15); color: var(--yellow); border: 1px solid rgba(255,213,79,.4); }
+    .badge-cancelled { background: rgba(244,67,54,.12); color: var(--red); border: 1px solid rgba(244,67,54,.3); }
+    .badge-released  { background: rgba(38,198,218,.12); color: var(--teal); border: 1px solid rgba(38,198,218,.3); }
+    .badge-pending-rel { background: rgba(171,71,188,.12); color: var(--purple); border: 1px solid rgba(171,71,188,.3); }
+
+    /* Method icon */
+    .method { font-size: 11px; color: var(--muted); }
+
+    /* Divergence highlight */
+    .div-alert { color: var(--red); font-weight: 700; }
+    .div-ok    { color: var(--muted); }
+
+    /* Filter row */
+    .filter-row { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+    .filter-row input, .filter-row select {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-size: 12px; padding: 5px 10px; outline: none; }
+    .filter-row input:focus, .filter-row select:focus { border-color: var(--orange); }
+    .filter-row label { font-size: 11px; color: var(--muted); }
+
+    /* Pending amount */
+    .pending-total { display: inline-block; background: rgba(171,71,188,.12);
+                     border: 1px solid rgba(171,71,188,.3); border-radius: 8px;
+                     padding: 8px 16px; font-size: 14px; font-weight: 700;
+                     color: var(--purple); margin-bottom: 14px; }
+
+    /* Fee audit */
+    .fee-bar-wrap { width: 100%; background: var(--border); border-radius: 3px; height: 6px; margin-top: 3px; }
+    .fee-bar      { height: 6px; border-radius: 3px; background: var(--orange); }
+    .fee-bar.alert { background: var(--red); }
+
+    /* Balance unavailable notice */
+    .balance-na { display: flex; align-items: center; gap: 10px;
+                  background: var(--bg3); border: 1px solid var(--border);
+                  border-radius: 8px; padding: 10px 16px; margin-bottom: 20px;
+                  font-size: 12px; color: var(--muted); }
+    .balance-na .icon { font-size: 16px; }
+    .balance-na code { background: var(--bg4); padding: 2px 6px; border-radius: 4px;
+                       font-size: 11px; color: #888; }
+
+    /* Audit note */
+    .audit-note { font-size: 10px; color: #444; margin-top: 6px; font-style: italic; }
+
+    /* Empty state */
+    .empty { text-align: center; padding: 36px; color: var(--muted); font-size: 13px; }
+    .empty strong { display: block; margin-bottom: 6px; color: var(--text); font-size: 15px; }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a class="nav-brand" href="/">AEG<span style="color:#fff">IS</span></a>
+  <span style="color:var(--border)">|</span>
+  <a href="/dashboard?account={{ account.name }}">{{ account.name }}</a>
+  <span style="color:var(--border)">›</span>
+  <span style="color:var(--text);font-weight:600">Financeiro</span>
+  <div class="nav-right">
+    <a href="/dashboard?account={{ account.name }}" class="btn-sm btn-ghost">← Dashboard</a>
+  </div>
+</nav>
+
+<div class="page">
+
+  <!-- Period tabs -->
+  <div class="period-tabs">
+    <span class="lbl">Período:</span>
+    {% for d in [7, 15, 30, 60, 90] %}
+    <a href="/financeiro/{{ seller_id }}?days={{ d }}"
+       class="tab {% if days == d %}active{% endif %}">{{ d }}d</a>
+    {% endfor %}
+  </div>
+
+  <!-- Collect bar -->
+  <div class="collect-bar">
+    <button class="btn-sm btn-orange" onclick="collectPayments()">↻ Coletar pagamentos MP</button>
+    <span id="collectStatus"></span>
+  </div>
+
+  <!-- ══ ALERTAS FINANCEIROS ATIVOS ══════════════════════════════════════════ -->
+  {% if insights %}
+  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
+    {% for ins in insights %}
+    <div style="display:flex;gap:10px;align-items:flex-start;
+                background:{% if ins.level == 'critical' %}rgba(244,67,54,.1)
+                           {% elif ins.level == 'warning' %}rgba(255,213,79,.08)
+                           {% else %}rgba(100,181,246,.08){% endif %};
+                border:1px solid {% if ins.level == 'critical' %}rgba(244,67,54,.4)
+                                  {% elif ins.level == 'warning' %}rgba(255,213,79,.4)
+                                  {% else %}rgba(100,181,246,.3){% endif %};
+                border-radius:8px;padding:10px 14px;font-size:13px">
+      <span style="font-size:15px;flex-shrink:0">{{ ins.icon }}</span>
+      <div>
+        <div style="font-weight:700;margin-bottom:2px">{{ ins.message }}</div>
+        <div style="font-size:12px;color:var(--muted)">{{ ins.detail }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- ══ SEÇÃO 1 — SALDO + KPI CARDS ════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">Saldo &amp; Receita</div>
+
+    <!-- Balance unavailable notice -->
+    <div class="balance-na">
+      <span class="icon">ℹ</span>
+      <span>
+        <strong style="color:var(--text)">Saldo da conta indisponível</strong> —
+        os endpoints de saldo MP
+        (<code>/v1/users/{id}/mercadopago_account/balance</code> e
+        <code>/v1/account/balance</code>) retornam 404/403 com o token OAuth do Mercado Livre.
+        É necessário um token MP de aplicação separada para acessar saldo.
+        Previsão de recebimentos está disponível na Seção 4 abaixo.
+      </span>
+    </div>
+
+    <!-- Summary KPI cards -->
+    <div class="kpi-row">
+      <div class="kpi orange">
+        <div class="lbl">Receita bruta {{ days }}d</div>
+        <div class="val">{{ summary.get("receita_bruta",0) | brl }}</div>
+        <div class="sub">{{ summary.get("total_payments",0) }} pagamentos de venda aprovados</div>
+        <div class="audit-note">
+          Fonte: MP <code>/v1/payments/search</code> ·
+          filtro: <code>operation_type=regular_payment</code> + <code>collector=seller</code> ·
+          campo <code>transaction_amount</code> · filtro <code>date_created</code>.<br>
+          Compras feitas pelo seller, transferências e outras movimentações estão excluídas
+          (ver seção "Outras Movimentações" abaixo).
+        </div>
+      </div>
+      <div class="kpi red">
+        <div class="lbl">Tarifas pagas {{ days }}d</div>
+        <div class="val">{{ summary.get("total_tarifas",0) | brl }}</div>
+        <div class="sub">
+          ML {{ summary.get("total_ml_fee",0) | brl }} •
+          MP {{ summary.get("total_mp_fee",0) | brl }} •
+          Frete {{ summary.get("total_shipping_fee",0) | brl }}
+        </div>
+        <div class="audit-note">Fonte: <code>charges_details</code> por tipo/nome</div>
+      </div>
+      <div class="kpi green">
+        <div class="lbl">Líquido recebido {{ days }}d</div>
+        <div class="val">{{ summary.get("receita_liquida",0) | brl }}</div>
+        {% if summary.get("receita_bruta",0) > 0 %}
+        <div class="sub">
+          {{ "%.1f"|format(summary.get("receita_liquida",0) / summary.get("receita_bruta",1) * 100) }}%
+          do bruto
+        </div>
+        {% endif %}
+        <div class="audit-note">Fonte: <code>transaction_details.net_received_amount</code></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SEÇÃO 2 — GRÁFICO DIÁRIO ═══════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">Recebimentos diários ({{ days }} dias)</div>
+    {% if chart_net and (chart_net | sum) > 0 %}
+    <div class="chart-wrap">
+      <canvas id="finChart"></canvas>
+    </div>
+    {% else %}
+    <div class="empty">
+      <strong>Sem dados de pagamentos</strong>
+      Clique em "Coletar pagamentos MP" para carregar os dados.
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ══ SEÇÃO 3 — CONCILIAÇÃO ══════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">Conciliação ML × MP</div>
+
+    <div class="filter-row">
+      <label>Buscar:</label>
+      <input id="concFilter" type="text" placeholder="pedido, produto, método..." style="width:240px"
+             oninput="filterConc()">
+      <label>Status:</label>
+      <select id="concStatus" onchange="filterConc()">
+        <option value="">Todos</option>
+        <option value="approved">Aprovado</option>
+        <option value="pending">Pendente</option>
+        <option value="cancelled">Cancelado</option>
+      </select>
+      <label>Liberação:</label>
+      <select id="concRelease" onchange="filterConc()">
+        <option value="">Todos</option>
+        <option value="released">Liberado</option>
+        <option value="pending">A liberar</option>
+      </select>
+    </div>
+
+    {% if conciliation %}
+    <div class="tbl-wrap">
+      <table id="concTable">
+        <thead><tr>
+          <th>Data</th>
+          <th>Pedido</th>
+          <th>Produto</th>
+          <th>Bruto</th>
+          <th>Tarifa ML</th>
+          <th>Tarifa MP</th>
+          <th>Frete</th>
+          <th>Líquido</th>
+          <th>Método</th>
+          <th>Parc.</th>
+          <th>Status</th>
+          <th>Liberação</th>
+        </tr></thead>
+        <tbody>
+          {% for r in conciliation %}
+          {% set is_pending = r.money_release_status != 'released' and r.payment_status == 'approved' %}
+          <tr class="conc-row"
+              data-status="{{ r.payment_status }}"
+              data-release="{{ r.money_release_status }}"
+              data-text="{{ (r.order_id ~ ' ' ~ r.item_title ~ ' ' ~ r.payment_method_id) | lower }}">
+            <td style="white-space:nowrap;color:var(--muted);font-size:12px">
+              {{ r.date_approved[:10] if r.date_approved else '—' }}
+            </td>
+            <td style="font-family:monospace;font-size:11px;color:var(--muted)">
+              {{ r.order_id or '—' }}
+            </td>
+            <td>
+              {% if r.item_id %}
+              <a href="/produto/{{ seller_id }}/{{ r.item_id }}"
+                 style="color:var(--text);text-decoration:none;font-size:12px"
+                 title="{{ r.item_title }}">
+                {{ r.item_title[:45] }}{% if r.item_title|length > 45 %}…{% endif %}
+              </a>
+              <div style="font-size:10px;color:var(--muted);font-family:monospace">{{ r.item_id }}</div>
+              {% else %}
+              <span style="font-size:12px;color:var(--muted)">{{ r.item_title[:45] or '—' }}</span>
+              {% endif %}
+            </td>
+            <td style="font-weight:700">{{ r.transaction_amount | brl }}</td>
+            <td style="color:var(--red)">-{{ r.ml_fee | brl }}</td>
+            <td style="color:var(--red)">-{{ r.mp_fee | brl }}</td>
+            <td style="color:var(--muted)">-{{ r.shipping_fee | brl }}</td>
+            <td style="font-weight:700;color:var(--green)">{{ r.net_received_amount | brl }}</td>
+            <td class="method">
+              {{ r.payment_method_id or '—' }}
+              {% if r.payment_type_id == 'pix' %}
+              <span style="color:var(--teal);font-weight:700"> PIX</span>
+              {% endif %}
+            </td>
+            <td style="color:var(--muted);text-align:center">
+              {{ r.installments }}x
+            </td>
+            <td>
+              {% if r.payment_status == 'approved' %}
+                <span class="badge badge-approved">aprovado</span>
+              {% elif r.payment_status == 'pending' %}
+                <span class="badge badge-pending">pendente</span>
+              {% elif r.payment_status == 'cancelled' %}
+                <span class="badge badge-cancelled">cancelado</span>
+              {% else %}
+                <span class="badge" style="color:var(--muted)">{{ r.payment_status }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.money_release_status == 'released' %}
+                <span class="badge badge-released">liberado</span>
+              {% elif is_pending %}
+                <div><span class="badge badge-pending-rel">{{ r.money_release_date[:10] if r.money_release_date else 'aguardando' }}</span></div>
+              {% else %}
+                <span style="color:var(--muted);font-size:11px">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div id="concEmpty" style="display:none" class="empty">
+      Nenhum resultado para os filtros selecionados.
+    </div>
+    {% else %}
+    <div class="empty">
+      <strong>Sem dados de conciliação</strong>
+      Colete os pagamentos MP para ver a conciliação com os pedidos ML.
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ══ SEÇÃO 4 — PREVISÃO DE RECEBIMENTOS ════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">Previsão de recebimentos</div>
+    {% if pending %}
+    <div class="pending-total">
+      A receber: {{ pending_total | brl }}
+      ({{ pending | length }} pagamento{{ 's' if pending|length != 1 else '' }})
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Data aprovação</th>
+          <th>Liberação prevista</th>
+          <th>Pedido</th>
+          <th>Produto</th>
+          <th>Método</th>
+          <th>Parc.</th>
+          <th>Bruto</th>
+          <th>Líquido</th>
+        </tr></thead>
+        <tbody>
+          {% for r in pending %}
+          {% set days_until = ((r.money_release_date[:10] | string) | replace('-','')) %}
+          <tr>
+            <td style="color:var(--muted);font-size:12px;white-space:nowrap">
+              {{ r.date_approved[:10] if r.date_approved else '—' }}
+            </td>
+            <td style="white-space:nowrap">
+              {% if r.money_release_date %}
+              <span style="color:var(--purple);font-weight:600">
+                {{ r.money_release_date[:10] }}
+              </span>
+              {% else %}
+              <span style="color:var(--muted)">—</span>
+              {% endif %}
+            </td>
+            <td style="font-family:monospace;font-size:11px;color:var(--muted)">
+              {{ r.order_id or '—' }}
+            </td>
+            <td style="font-size:12px">
+              {{ r.item_title[:45] if r.item_title else '—' }}
+              {% if r.item_title|length > 45 %}…{% endif %}
+            </td>
+            <td class="method">{{ r.payment_method_id or '—' }}</td>
+            <td style="color:var(--muted);text-align:center">{{ r.installments }}x</td>
+            <td style="font-weight:700">{{ r.transaction_amount | brl }}</td>
+            <td style="font-weight:700;color:var(--green)">
+              {{ r.net_received_amount | brl }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty">
+      <strong>Nenhum pagamento a liberar</strong>
+      Todos os pagamentos aprovados já foram liberados, ou não há dados coletados.
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ══ SEÇÃO 5 — CONFERÊNCIA DE TARIFAS ══════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">Conferência de tarifas ML</div>
+    {% if fee_audit %}
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">
+      Comparação entre a tarifa cobrada pelo ML e a tarifa esperada cadastrada em Custos.
+      Divergências &gt; 1% sinalizadas em vermelho.
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Produto</th>
+          <th style="text-align:right">Bruto {{ days }}d</th>
+          <th style="text-align:right">Tarifa real</th>
+          <th style="text-align:right">Taxa real</th>
+          <th style="text-align:right">Taxa esperada</th>
+          <th style="text-align:right">Divergência</th>
+          <th>Proporção</th>
+        </tr></thead>
+        <tbody>
+          {% for r in fee_audit %}
+          {% set div_pct = r.avg_ml_fee_rate - r.expected_rate_pct %}
+          {% set is_alert = div_pct | abs > 1 %}
+          <tr>
+            <td>
+              {% if r.item_id %}
+              <a href="/produto/{{ seller_id }}/{{ r.item_id }}"
+                 style="color:var(--text);text-decoration:none;font-size:12px">
+                {{ r.item_title[:50] }}{% if r.item_title|length > 50 %}…{% endif %}
+              </a>
+              <div style="font-size:10px;color:var(--muted);font-family:monospace">{{ r.item_id }}</div>
+              {% else %}
+              <span style="font-size:12px">{{ r.item_title[:50] or '—' }}</span>
+              {% endif %}
+            </td>
+            <td style="text-align:right;font-weight:700">{{ r.total_bruto | brl }}</td>
+            <td style="text-align:right;color:var(--red)">{{ r.total_ml_fee_real | brl }}</td>
+            <td style="text-align:right">
+              <span class="{{ 'div-alert' if is_alert else 'div-ok' }}">
+                {{ "%.2f"|format(r.avg_ml_fee_rate) }}%
+              </span>
+            </td>
+            <td style="text-align:right;color:var(--muted)">{{ "%.2f"|format(r.expected_rate_pct) }}%</td>
+            <td style="text-align:right">
+              {% if is_alert %}
+              <span class="div-alert">
+                {% if div_pct > 0 %}+{% endif %}{{ "%.2f"|format(div_pct) }}%
+                ≈ {{ r.fee_divergence|abs | brl }}
+              </span>
+              {% else %}
+              <span class="div-ok">ok</span>
+              {% endif %}
+            </td>
+            <td style="width:120px">
+              <div class="fee-bar-wrap">
+                <div class="fee-bar {{ 'alert' if is_alert else '' }}"
+                     style="width:{{ [r.avg_ml_fee_rate * 3.5, 100] | min }}%"></div>
+              </div>
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">
+                {{ r.payments_count }} pagamento{{ 's' if r.payments_count != 1 else '' }}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty">
+      <strong>Sem dados de tarifas</strong>
+      Colete os pagamentos MP para auditar as tarifas cobradas.
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ══ SEÇÃO 6 — OUTRAS MOVIMENTAÇÕES ═══════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">Outras Movimentações</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">
+      Operações que <strong>não são vendas</strong> detectadas na conta MP —
+      compras feitas pelo seller, transferências, estornos, etc.
+      Excluídas do cálculo de receita acima.
+    </div>
+    {% if other_movements and other_movements.total_count > 0 %}
+    <div style="display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap">
+      <div class="kpi" style="min-width:160px">
+        <div class="lbl">Total {{ days }}d</div>
+        <div class="val" style="font-size:18px;color:var(--muted)">{{ other_movements.total_count }} ops.</div>
+        <div class="sub">{{ other_movements.total_amount | brl }}</div>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Tipo de operação</th>
+          <th style="text-align:right">Qtd.</th>
+          <th style="text-align:right">Volume total</th>
+        </tr></thead>
+        <tbody>
+          {% for op in other_movements.items %}
+          <tr>
+            <td style="font-family:monospace;font-size:12px">{{ op.operation_type or '—' }}</td>
+            <td style="text-align:right;color:var(--muted)">{{ op.count }}</td>
+            <td style="text-align:right">{{ op.total_amount | brl }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty">
+      Nenhuma movimentação não-venda encontrada. Colete os pagamentos MP para popular esta seção.
+    </div>
+    {% endif %}
+  </div>
+
+</div><!-- /page -->
+
+<script>
+const SELLER_ID = "{{ seller_id }}";
+const DAYS      = {{ days }};
+
+// ── Chart.js — recebimentos diários ──────────────────────────────────────────
+(function() {
+  const el = document.getElementById('finChart');
+  if (!el) return;
+
+  const labels = {{ chart_labels | tojson }};
+  const net    = {{ chart_net    | tojson }};
+  const gross  = {{ chart_gross  | tojson }};
+
+  const displayLabels = labels.map((l, i) => {
+    const d = parseInt(l.slice(8));
+    return (i % 5 === 0 || d === 1) ? l.slice(5) : '';
+  });
+
+  new Chart(el.getContext('2d'), {
+    data: {
+      labels: displayLabels,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Bruto',
+          data: gross,
+          backgroundColor: 'rgba(245,166,35,0.25)',
+          borderColor: 'rgba(245,166,35,0.6)',
+          borderWidth: 1,
+          order: 2,
+        },
+        {
+          type: 'bar',
+          label: 'Líquido',
+          data: net,
+          backgroundColor: 'rgba(76,175,80,0.55)',
+          borderColor: 'rgba(76,175,80,0.9)',
+          borderWidth: 1,
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#888', font: { size: 11 } } },
+        tooltip: {
+          backgroundColor: '#1a1a1a', borderColor: '#2a2a2a', borderWidth: 1,
+          titleColor: '#e0e0e0', bodyColor: '#aaa',
+          callbacks: {
+            label: ctx => ` R$ ${ctx.parsed.y.toFixed(2).replace('.', ',')}`,
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#555', maxRotation: 0 }, grid: { color: '#1e1e1e' } },
+        y: {
+          ticks: {
+            color: '#666',
+            callback: v => 'R$ ' + v.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.'),
+          },
+          grid: { color: '#1e1e1e' },
+        },
+      },
+    },
+  });
+})();
+
+// ── Collect payments ──────────────────────────────────────────────────────────
+function collectPayments() {
+  const btn = document.querySelector('[onclick="collectPayments()"]');
+  const st  = document.getElementById('collectStatus');
+  btn.disabled = true;
+  btn.textContent = '...';
+  st.textContent = 'Coletando…';
+
+  fetch(`/financeiro/${SELLER_ID}/collect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ days: DAYS }),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      st.textContent = `✓ ${d.collected} pagamentos coletados. Recarregando…`;
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      st.style.color = '#f44336';
+      st.textContent = 'Erro: ' + (d.error || 'desconhecido');
+    }
+  })
+  .catch(e => {
+    st.style.color = '#f44336';
+    st.textContent = 'Erro de rede: ' + e;
+  })
+  .finally(() => {
+    btn.disabled = false;
+    btn.textContent = '↻ Coletar pagamentos MP';
+  });
+}
+
+// ── Conciliation filter ───────────────────────────────────────────────────────
+function filterConc() {
+  const txt     = document.getElementById('concFilter').value.toLowerCase();
+  const status  = document.getElementById('concStatus').value;
+  const release = document.getElementById('concRelease').value;
+
+  let visible = 0;
+  document.querySelectorAll('#concTable tbody .conc-row').forEach(tr => {
+    const matchTxt     = !txt    || tr.dataset.text.includes(txt);
+    const matchStatus  = !status || tr.dataset.status  === status;
+    const matchRelease = !release || tr.dataset.release === release;
+    const show = matchTxt && matchStatus && matchRelease;
+    tr.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+
+  const empty = document.getElementById('concEmpty');
+  if (empty) empty.style.display = visible === 0 ? '' : 'none';
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendário de Reposição — AEGIS</title>
+  <style>
+    :root {
+      --bg: #0d0d0d; --bg2: #141414; --bg3: #1a1a1a;
+      --orange: #f5a623; --green: #4caf50; --red: #f44336;
+      --text: #e0e0e0; --muted: #888; --border: #2a2a2a;
+      --card-bg: #181818;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; font-size: 14px; }
+
+    /* Nav */
+    .nav { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; gap: 20px; }
+    .nav-brand { color: var(--orange); font-weight: 700; font-size: 18px; letter-spacing: 1px; text-decoration: none; }
+    .nav a { color: var(--muted); text-decoration: none; font-size: 13px; }
+    .nav a:hover { color: var(--text); }
+    .nav-sep { color: var(--border); }
+    .nav-right { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+    .btn-sm { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; text-decoration: none; display: inline-block; }
+    .btn-orange { background: var(--orange); color: #000; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    .btn-ghost:hover { border-color: var(--orange); color: var(--orange); }
+
+    /* Layout */
+    .page { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+    /* Header */
+    .page-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+    .page-title { font-size: 22px; font-weight: 700; }
+    .badge-danger { background: var(--red); color: #fff; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; }
+    .badge-warn { background: #ff9800; color: #000; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; }
+
+    /* Summary cards */
+    .summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 28px; }
+    .sum-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; }
+    .sum-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+    .sum-card .value { font-size: 26px; font-weight: 700; }
+    .sum-card.hoje  .value { color: var(--red); }
+    .sum-card.cinco .value { color: #ff9800; }
+    .sum-card.dez   .value { color: #ffc107; }
+    .sum-card.vinte .value { color: #8bc34a; }
+    .sum-card.trinta .value { color: var(--green); }
+
+    /* Group section */
+    .group-section { margin-bottom: 32px; }
+    .group-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 10px 16px; border-radius: 8px; }
+    .group-header.hoje   { background: rgba(244,67,54,.15); border-left: 4px solid var(--red); }
+    .group-header.cinco  { background: rgba(255,152,0,.12); border-left: 4px solid #ff9800; }
+    .group-header.dez    { background: rgba(255,193,7,.10); border-left: 4px solid #ffc107; }
+    .group-header.vinte  { background: rgba(139,195,74,.10); border-left: 4px solid #8bc34a; }
+    .group-header.trinta { background: rgba(76,175,80,.10); border-left: 4px solid var(--green); }
+    .group-name { font-size: 15px; font-weight: 700; flex: 1; }
+    .group-count { font-size: 13px; color: var(--muted); }
+
+    /* Table */
+    .tbl-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { background: var(--bg3); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .8px; padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background .12s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(245,166,35,.05); cursor: pointer; }
+    td { padding: 10px 14px; }
+
+    .item-title { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+    .item-id { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* Risk badge */
+    .risk-badge { display: inline-block; padding: 3px 8px; border-radius: 5px; font-size: 11px; font-weight: 700; }
+    .risk-RUPTURA { background: #f44336; color: #fff; }
+    .risk-CRITICO { background: #d32f2f; color: #fff; }
+    .risk-URGENTE { background: #ff9800; color: #000; }
+    .risk-ATENCAO { background: #ffc107; color: #000; }
+    .risk-ESTAVEL  { background: #4caf50; color: #fff; }
+
+    /* Score bar */
+    .score-bar-wrap { display: flex; align-items: center; gap: 8px; }
+    .score-bar { height: 6px; border-radius: 3px; flex: 1; background: var(--bg3); overflow: hidden; }
+    .score-bar-fill { height: 100%; border-radius: 3px; }
+    .score-val { font-size: 12px; color: var(--muted); width: 28px; text-align: right; }
+
+    /* Days until rupture */
+    .days-val { font-weight: 700; }
+    .days-red    { color: var(--red); }
+    .days-orange { color: #ff9800; }
+    .days-yellow { color: #ffc107; }
+    .days-green  { color: var(--green); }
+
+    /* Induction qty */
+    .send-qty { font-size: 18px; font-weight: 700; color: var(--orange); }
+    .send-prazo { font-size: 11px; color: var(--muted); }
+
+    /* Empty state */
+    .empty { text-align: center; padding: 40px; color: var(--muted); }
+    .empty-icon { font-size: 36px; margin-bottom: 8px; }
+
+    /* Filters */
+    .filter-bar { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
+    .filter-bar input { background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: 6px; font-size: 13px; flex: 1; max-width: 300px; }
+    .filter-bar input::placeholder { color: var(--muted); }
+    .filter-bar select { background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+
+    @media (max-width: 900px) {
+      .summary-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a class="nav-brand" href="/">AEGIS</a>
+  <span class="nav-sep">|</span>
+  <a href="/dashboard?account={{ account.name }}">Dashboard</a>
+  <a href="/calendario/{{ seller_id }}" style="color:var(--orange)">Calendário</a>
+  <a href="/custos/{{ seller_id }}">Custos</a>
+  <a href="/apuracao/{{ seller_id }}">Apuração</a>
+  <a href="/promocoes/{{ seller_id }}">Promoções</a>
+  <div class="nav-right">
+    {% for a in authorized %}
+      {% if a.seller_id | string == seller_id | string %}
+        <span style="color:var(--green);font-size:12px">● {{ a.name }}</span>
+      {% endif %}
+    {% endfor %}
+    <a href="/calendario/{{ seller_id }}/export" class="btn-sm btn-orange">Exportar xlsx</a>
+  </div>
+</nav>
+
+<div class="page">
+
+  <!-- Header -->
+  <div class="page-header">
+    <h1 class="page-title">Calendário de Reposição</h1>
+    {% if ruptura_count > 0 %}
+      <span class="badge-danger">{{ ruptura_count }} EM RUPTURA</span>
+    {% endif %}
+    {% if total_at_risk > 0 %}
+      <span class="badge-warn">{{ total_at_risk }} em risco total</span>
+    {% endif %}
+  </div>
+
+  <!-- Summary cards -->
+  <div class="summary-grid">
+    <div class="sum-card hoje">
+      <div class="label">Em Ruptura / Hoje</div>
+      <div class="value">{{ groups['HOJE'] | length }}</div>
+    </div>
+    <div class="sum-card cinco">
+      <div class="label">Em 5 Dias</div>
+      <div class="value">{{ groups['EM 5 DIAS'] | length }}</div>
+    </div>
+    <div class="sum-card dez">
+      <div class="label">Em 10 Dias</div>
+      <div class="value">{{ groups['EM 10 DIAS'] | length }}</div>
+    </div>
+    <div class="sum-card vinte">
+      <div class="label">Em 20 Dias</div>
+      <div class="value">{{ groups['EM 20 DIAS'] | length }}</div>
+    </div>
+    <div class="sum-card trinta">
+      <div class="label">Em 30 Dias</div>
+      <div class="value">{{ groups['EM 30 DIAS'] | length }}</div>
+    </div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <input type="text" id="filterInput" placeholder="Filtrar por título ou ID...">
+  </div>
+
+  <!-- Groups -->
+  {% set group_classes = {
+    'HOJE': 'hoje', 'EM 5 DIAS': 'cinco', 'EM 10 DIAS': 'dez',
+    'EM 20 DIAS': 'vinte', 'EM 30 DIAS': 'trinta'
+  } %}
+
+  {% for group_name, items in groups.items() %}
+    {% if items %}
+    <div class="group-section">
+      <div class="group-header {{ group_classes[group_name] }}">
+        <span class="group-name">{{ group_name }}</span>
+        <span class="group-count">{{ items | length }} produto(s)</span>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th>Estoque</th>
+              <th>Giro 7d</th>
+              <th>Giro 30d</th>
+              <th>Dias até Ruptura</th>
+              <th>Risco</th>
+              <th>Score</th>
+              <th>Envio Sugerido</th>
+              <th>Prazo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+            {% set risk = item.risk %}
+            {% set induct = item.induction %}
+            <tr class="item-row" onclick="window.location='/produto/{{ seller_id }}/{{ item.id }}'">
+              <td>
+                <div class="item-title">{{ item.title }}</div>
+                <div class="item-id">{{ item.id }}</div>
+              </td>
+              <td>{{ item.stock }}</td>
+              <td>{{ "%.1f" | format(item.giro_7d) }}</td>
+              <td>{{ "%.1f" | format(item.giro_30d) }}</td>
+              <td>
+                {% set d = risk.days_until_rupture %}
+                {% if d is none %}
+                  <span class="days-green">—</span>
+                {% elif d <= 0 %}
+                  <span class="days-red">RUPTURA</span>
+                {% elif d <= 5 %}
+                  <span class="days-red days-val">{{ d }}d</span>
+                {% elif d <= 10 %}
+                  <span class="days-orange days-val">{{ d }}d</span>
+                {% elif d <= 20 %}
+                  <span class="days-yellow days-val">{{ d }}d</span>
+                {% else %}
+                  <span class="days-green days-val">{{ d }}d</span>
+                {% endif %}
+              </td>
+              <td>
+                {% set level_cls = risk.level | replace('Í','I') | replace('Ã','A') | replace('É','E') %}
+                <span class="risk-badge risk-{{ level_cls }}">{{ risk.level }}</span>
+              </td>
+              <td>
+                <div class="score-bar-wrap">
+                  <div class="score-bar">
+                    <div class="score-bar-fill" style="width:{{ risk.score }}%;background:{{ risk.color }}"></div>
+                  </div>
+                  <span class="score-val">{{ risk.score }}</span>
+                </div>
+              </td>
+              <td>
+                <span class="send-qty">{{ induct.qty }}</span>
+              </td>
+              <td>
+                <span class="send-prazo">{{ induct.prazo_label }}</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  {% endfor %}
+
+  {% if total_at_risk == 0 %}
+    <div class="empty">
+      <div class="empty-icon">✅</div>
+      <div>Nenhum produto em risco. Ótimo!</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">Execute uma coleta para atualizar o histórico de estoque.</div>
+    </div>
+  {% endif %}
+
+</div>
+
+<script>
+  // Filter
+  const filterInput = document.getElementById('filterInput');
+  if (filterInput) {
+    filterInput.addEventListener('input', function() {
+      const q = this.value.toLowerCase();
+      document.querySelectorAll('.item-row').forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+      });
+    });
+  }
+</script>
+
+</body>
+</html>

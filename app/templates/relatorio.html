@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relatório Executivo — AEGIS</title>
+  <style>
+    :root {
+      --bg: #0d0d0d; --bg2: #141414; --bg3: #1a1a1a;
+      --orange: #f5a623; --green: #4caf50; --red: #f44336;
+      --teal: #26c6da; --purple: #ab47bc; --yellow: #ffc107;
+      --text: #e0e0e0; --muted: #888; --border: #2a2a2a;
+      --card-bg: #181818;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; font-size: 14px; }
+
+    /* Nav */
+    .nav { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; gap: 20px; }
+    .nav-brand { color: var(--orange); font-weight: 700; font-size: 18px; letter-spacing: 1px; text-decoration: none; }
+    .nav a { color: var(--muted); text-decoration: none; font-size: 13px; }
+    .nav a:hover { color: var(--text); }
+    .nav-sep { color: var(--border); }
+    .nav-right { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+    .btn-sm { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; text-decoration: none; display: inline-block; }
+    .btn-orange { background: var(--orange); color: #000; }
+    .period-btn { padding: 5px 12px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; text-decoration: none; }
+    .period-btn.active { background: var(--orange); color: #000; border-color: var(--orange); font-weight: 700; }
+
+    /* Layout */
+    .page { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+    /* Page header */
+    .page-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+    .page-title { font-size: 22px; font-weight: 700; }
+    .period-strip { display: flex; gap: 6px; }
+
+    /* Main KPIs */
+    .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+    .kpi-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+    .kpi-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px; }
+    .kpi-card .value { font-size: 28px; font-weight: 700; }
+    .kpi-card .sub   { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .kpi-orange { color: var(--orange); }
+    .kpi-green  { color: var(--green); }
+    .kpi-red    { color: var(--red); }
+    .kpi-teal   { color: var(--teal); }
+
+    /* Potential bar */
+    .potential-bar-wrap { margin-top: 10px; }
+    .pot-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .pot-bar { height: 8px; background: var(--bg3); border-radius: 4px; overflow: hidden; display: flex; }
+    .pot-realized { background: var(--orange); }
+    .pot-lost     { background: rgba(244,67,54,.5); }
+
+    /* Section */
+    .section { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+    .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--orange); margin-bottom: 16px; }
+
+    /* Two cols */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+
+    /* Table */
+    table { width: 100%; border-collapse: collapse; }
+    thead th { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .8px; padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    tbody td { padding: 9px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: rgba(245,166,35,.04); cursor: pointer; }
+
+    .rank-num { color: var(--muted); font-size: 16px; font-weight: 700; width: 28px; }
+    .item-title-sm { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Risk badge */
+    .risk-badge { display: inline-block; padding: 2px 8px; border-radius: 5px; font-size: 11px; font-weight: 700; }
+    .risk-RUPTURA { background: #f44336; color: #fff; }
+    .risk-CRITICO { background: #d32f2f; color: #fff; }
+    .risk-URGENTE { background: #ff9800; color: #000; }
+    .risk-ATENCAO { background: #ffc107; color: #000; }
+
+    /* Trend badge */
+    .trend-up   { color: var(--green); font-weight: 700; }
+    .trend-down { color: var(--red); font-weight: 700; }
+
+    /* Actions */
+    .acoes-list { display: flex; flex-direction: column; gap: 10px; }
+    .acao-card { border-radius: 8px; padding: 14px 16px; border-left: 4px solid var(--border); }
+    .acao-card.tipo-RUPTURA          { background: rgba(244,67,54,.10); border-color: var(--red); }
+    .acao-card.tipo-RUPTURA_HISTORICA{ background: rgba(244,67,54,.07); border-color: #b71c1c; }
+    .acao-card.tipo-CRITICO          { background: rgba(255,152,0,.10); border-color: #ff9800; }
+    .acao-card.tipo-MARGEM           { background: rgba(171,71,188,.10); border-color: var(--purple); }
+    .acao-card.tipo-CUSTO            { background: rgba(38,198,218,.08); border-color: var(--teal); }
+    .acao-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+    .acao-items { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .acao-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; margin-right: 6px; }
+    .badge-1 { background: var(--red); color: #fff; }
+    .badge-2 { background: #ff9800; color: #000; }
+    .badge-3 { background: var(--purple); color: #fff; }
+    .badge-4 { background: var(--teal); color: #000; }
+
+    /* Margem health */
+    .health-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .health-cell { background: var(--bg3); border-radius: 8px; padding: 12px; text-align: center; }
+    .health-cell .val { font-size: 22px; font-weight: 700; }
+    .health-cell .lbl { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* Empty */
+    .empty { text-align: center; padding: 30px; color: var(--muted); font-size: 13px; }
+
+    @media (max-width: 1000px) {
+      .kpi-row { grid-template-columns: repeat(2, 1fr); }
+      .two-col, .three-col { grid-template-columns: 1fr; }
+      .health-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a class="nav-brand" href="/">AEGIS</a>
+  <span class="nav-sep">|</span>
+  <a href="/dashboard?account={{ account.name }}">Dashboard</a>
+  <a href="/calendario/{{ seller_id }}">Calendário</a>
+  <a href="/custos/{{ seller_id }}">Custos</a>
+  <a href="/apuracao/{{ seller_id }}">Apuração</a>
+  <a href="/promocoes/{{ seller_id }}">Promoções</a>
+  <a href="/relatorio/{{ seller_id }}" style="color:var(--orange)">Relatório</a>
+  <div class="nav-right">
+    <span style="color:var(--green);font-size:12px">● {{ account.name }}</span>
+  </div>
+</nav>
+
+<div class="page">
+
+  <!-- Header + period selector -->
+  <div class="page-header">
+    <h1 class="page-title">Relatório Executivo</h1>
+    <div class="period-strip">
+      {% for p in [7, 15, 30, 60, 90] %}
+        <a href="/relatorio/{{ seller_id }}?period={{ p }}"
+           class="period-btn {% if p == period %}active{% endif %}">{{ p }}d</a>
+      {% endfor %}
+    </div>
+    <span style="font-size:12px;color:var(--muted);margin-left:8px">últimos {{ period }} dias</span>
+  </div>
+
+  <!-- Main KPIs -->
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="label">Faturamento Realizado</div>
+      <div class="value kpi-orange">R$ {{ "{:,.0f}".format(report.receita_realizada).replace(",", ".") }}</div>
+      <div class="sub">{{ report.total_units }} unidades vendidas</div>
+      {% if report.receita_potencial > report.receita_realizada %}
+      <div class="potential-bar-wrap">
+        <div class="pot-labels">
+          <span>Realizado</span><span>Potencial: R$ {{ "{:,.0f}".format(report.receita_potencial).replace(",", ".") }}</span>
+        </div>
+        <div class="pot-bar">
+          {% set pct = (report.receita_realizada / report.receita_potencial * 100) if report.receita_potencial > 0 else 100 %}
+          <div class="pot-realized" style="width:{{ pct | round }}%"></div>
+          <div class="pot-lost" style="width:{{ (100 - pct) | round }}%"></div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="kpi-card">
+      <div class="label">Receita Perdida (Rupturas)</div>
+      <div class="value {% if report.receita_perdida > 0 %}kpi-red{% else %}kpi-green{% endif %}">
+        R$ {{ "{:,.0f}".format(report.receita_perdida).replace(",", ".") }}
+      </div>
+      <div class="sub">
+        {{ report.ruptura_summary.total_items }} produto(s) |
+        {{ report.ruptura_summary.total_dias }} dia(s) sem estoque
+      </div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="label">Margem Média</div>
+      {% if report.margem_summary.margem_pct is not none %}
+        <div class="value {% if report.margem_summary.margem_pct < 0 %}kpi-red{% elif report.margem_summary.margem_pct < 10 %}kpi-orange{% else %}kpi-green{% endif %}">
+          {{ "%.1f" | format(report.margem_summary.margem_pct) }}%
+        </div>
+        <div class="sub">
+          {{ report.margem_summary.negativas }} negativa(s) |
+          {{ report.margem_summary.abaixo_10 }} abaixo 10%
+        </div>
+      {% else %}
+        <div class="value" style="color:var(--muted)">—</div>
+        <div class="sub">Sem custos cadastrados</div>
+      {% endif %}
+    </div>
+
+    <div class="kpi-card">
+      <div class="label">Prejuízo Acumulado</div>
+      <div class="value {% if report.margem_summary.prejuizo_total > 0 %}kpi-red{% else %}kpi-green{% endif %}">
+        {% if report.margem_summary.prejuizo_total > 0 %}
+          R$ {{ "{:,.0f}".format(report.margem_summary.prejuizo_total).replace(",", ".") }}
+        {% else %}
+          R$ 0
+        {% endif %}
+      </div>
+      <div class="sub">{{ report.margem_summary.sem_custo }} item(s) sem custo</div>
+    </div>
+  </div>
+
+  <!-- Actions + Risk top -->
+  <div class="two-col">
+
+    <!-- Priority actions -->
+    <div class="section">
+      <div class="section-title">Ações Prioritárias</div>
+      {% if report.acoes_prioritarias %}
+        <div class="acoes-list">
+          {% for acao in report.acoes_prioritarias %}
+          <div class="acao-card tipo-{{ acao.tipo }}">
+            <div>
+              <span class="acao-badge badge-{{ acao.prioridade }}">P{{ acao.prioridade }}</span>
+              <span class="acao-title">{{ acao.descricao }}</span>
+            </div>
+            {% if acao.itens %}
+              <div class="acao-items">
+                {% for t in acao.itens %}<div>• {{ t }}</div>{% endfor %}
+              </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty">Nenhuma ação prioritária identificada.</div>
+      {% endif %}
+    </div>
+
+    <!-- Top risk -->
+    <div class="section">
+      <div class="section-title">Top 5 — Maior Risco</div>
+      {% if report.top_risco %}
+        <table>
+          <thead>
+            <tr><th>#</th><th>Produto</th><th>Nível</th><th>Score</th><th>Dias</th></tr>
+          </thead>
+          <tbody>
+            {% for r in report.top_risco %}
+            <tr onclick="window.location='/produto/{{ seller_id }}/{{ r.item_id }}'">
+              <td class="rank-num">{{ loop.index }}</td>
+              <td><div class="item-title-sm">{{ r.title }}</div></td>
+              <td>
+                {% set lc = r.level | replace('Í','I') | replace('Ã','A') | replace('É','E') %}
+                <span class="risk-badge risk-{{ lc }}">{{ r.level }}</span>
+              </td>
+              <td><strong>{{ r.score }}</strong></td>
+              <td>
+                {% if r.days_until_rupture is not none %}
+                  {% if r.days_until_rupture <= 0 %}
+                    <span style="color:var(--red)">RUPTURA</span>
+                  {% else %}
+                    {{ r.days_until_rupture }}d
+                  {% endif %}
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty">Nenhum item em risco no período.</div>
+      {% endif %}
+    </div>
+
+  </div><!-- /two-col actions+risk -->
+
+  <!-- Top receita + crescimento -->
+  <div class="two-col">
+
+    <div class="section">
+      <div class="section-title">Top 5 — Maior Receita</div>
+      {% if report.top_receita %}
+        <table>
+          <thead>
+            <tr><th>#</th><th>Produto</th><th>Receita</th><th>Unidades</th></tr>
+          </thead>
+          <tbody>
+            {% for r in report.top_receita %}
+            <tr onclick="window.location='/produto/{{ seller_id }}/{{ r.item_id }}'">
+              <td class="rank-num">{{ loop.index }}</td>
+              <td><div class="item-title-sm">{{ r.title }}</div></td>
+              <td style="color:var(--orange);font-weight:700">
+                R$ {{ "{:,.0f}".format(r.revenue).replace(",", ".") }}
+              </td>
+              <td>{{ r.units }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty">Sem dados de vendas no período.</div>
+      {% endif %}
+    </div>
+
+    <div class="section">
+      <div class="section-title">Top 5 — Maior Crescimento</div>
+      {% if report.top_crescimento %}
+        <table>
+          <thead>
+            <tr><th>#</th><th>Produto</th><th>Giro 7d</th><th>Giro 30d</th><th>Aceleração</th></tr>
+          </thead>
+          <tbody>
+            {% for r in report.top_crescimento %}
+            <tr onclick="window.location='/produto/{{ seller_id }}/{{ r.item_id }}'">
+              <td class="rank-num">{{ loop.index }}</td>
+              <td><div class="item-title-sm">{{ r.title }}</div></td>
+              <td style="color:var(--green);font-weight:700">{{ "%.1f" | format(r.giro_7d) }}/d</td>
+              <td>{{ "%.1f" | format(r.giro_30d) }}/d</td>
+              <td class="trend-up">×{{ "%.2f" | format(r.ratio) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="empty">Nenhum produto acelerando no período.</div>
+      {% endif %}
+    </div>
+
+  </div><!-- /two-col top -->
+
+  <!-- Margin health -->
+  <div class="section">
+    <div class="section-title">Saúde Financeira (Margem)</div>
+    <div class="health-grid">
+      <div class="health-cell">
+        <div class="val {% if report.margem_summary.margem_pct is not none and report.margem_summary.margem_pct < 0 %}kpi-red{% elif report.margem_summary.margem_pct is not none %}kpi-green{% endif %}">
+          {% if report.margem_summary.margem_pct is not none %}
+            {{ "%.1f" | format(report.margem_summary.margem_pct) }}%
+          {% else %}—{% endif %}
+        </div>
+        <div class="lbl">Margem Média</div>
+      </div>
+      <div class="health-cell">
+        <div class="val {% if report.margem_summary.negativas > 0 %}kpi-red{% else %}kpi-green{% endif %}">
+          {{ report.margem_summary.negativas }}
+        </div>
+        <div class="lbl">Margem Negativa</div>
+      </div>
+      <div class="health-cell">
+        <div class="val {% if report.margem_summary.abaixo_10 > 0 %}kpi-orange{% else %}kpi-green{% endif %}">
+          {{ report.margem_summary.abaixo_10 }}
+        </div>
+        <div class="lbl">Abaixo de 10%</div>
+      </div>
+      <div class="health-cell">
+        <div class="val {% if report.margem_summary.sem_custo > 0 %}kpi-teal{% else %}kpi-green{% endif %}">
+          {{ report.margem_summary.sem_custo }}
+        </div>
+        <div class="lbl">Sem Custo</div>
+      </div>
+    </div>
+    {% if report.margem_summary.sem_custo > 0 %}
+      <div style="margin-top:12px;font-size:12px;color:var(--muted)">
+        Cadastre os custos em
+        <a href="/custos/{{ seller_id }}" style="color:var(--orange)">Custos → {{ seller_id }}</a>
+        para habilitar o cálculo de margem completo.
+      </div>
+    {% endif %}
+  </div>
+
+</div><!-- /page -->
+
+</body>
+</html>

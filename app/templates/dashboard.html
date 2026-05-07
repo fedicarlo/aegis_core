@@ -1,0 +1,1243 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AEGIS — {{ account.name }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d0d;
+      --surface:   #111111;
+      --surface2:  #161616;
+      --border:    #1e1e1e;
+      --border2:   #2a2a2a;
+      --text:      #e0e0e0;
+      --muted:     #555555;
+      --orange:    #f5a623;
+      --green:     #4caf50;
+      --red:       #f44336;
+      --yellow:    #ffd54f;
+      --blue:      #64b5f6;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ─── HEADER ─────────────────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 40px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      position: sticky;
+      top: 0;
+      z-index: 200;
+    }
+
+    .logo {
+      font-size: 18px; font-weight: 700; letter-spacing: 4px;
+      color: #fff; text-decoration: none; white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .logo span { color: var(--orange); }
+
+    .header-account {
+      display: flex; align-items: center; gap: 10px;
+      flex: 1; justify-content: center;
+    }
+    .header-account label {
+      font-size: 10px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1.5px;
+    }
+    select.account-sel {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 6px;
+      color: var(--text); font-size: 13px; padding: 6px 10px;
+      cursor: pointer; outline: none;
+    }
+    select.account-sel:focus { border-color: #444; }
+
+    .header-meta {
+      font-size: 11px; color: #444;
+      white-space: nowrap;
+    }
+    .header-meta strong { color: #666; }
+
+    .header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+    /* ─── MARGIN HEALTH CARD ────────────────────────────────────────────── */
+    .margin-health {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    .mh-cell {
+      background: var(--surface);
+      padding: 16px 20px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .mh-cell-label {
+      font-size: 9px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--muted);
+    }
+    .mh-cell-val {
+      font-size: 26px; font-weight: 700; line-height: 1; letter-spacing: -0.5px;
+    }
+    .mh-cell-sub { font-size: 11px; color: #444; }
+    .mh-cell a { color: var(--orange); text-decoration: none; font-size: 11px; }
+    .mh-cell a:hover { text-decoration: underline; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 600; padding: 7px 14px;
+      border-radius: 6px; border: none; cursor: pointer;
+      text-decoration: none; transition: opacity .15s, background .15s;
+      white-space: nowrap;
+    }
+    .btn:hover { opacity: .8; }
+    .btn-primary { background: var(--orange); color: #000; }
+    .btn-ghost   { background: #1a1a1a; color: #777; border: 1px solid var(--border2); }
+
+    /* ─── FLASHES ────────────────────────────────────────────────────────── */
+    .flashes { padding: 12px 40px 0; display: flex; flex-direction: column; gap: 8px; }
+    .flash { padding: 10px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; }
+    .flash.success { background: #1a3a1a; border: 1px solid var(--green); color: #81c784; }
+    .flash.error   { background: #3a1212; border: 1px solid var(--red);   color: #ef9a9a; }
+    .flash.info    { background: #1a2a3a; border: 1px solid var(--blue);  color: #90caf9; }
+
+    /* ─── MAIN ───────────────────────────────────────────────────────────── */
+    main { padding: 28px 40px 60px; }
+
+    /* ─── ALERT PANEL ────────────────────────────────────────────────────── */
+    .alert-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+    .alert-panel-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 18px;
+      cursor: pointer; user-select: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color .2s;
+    }
+    .alert-panel-header:hover { background: #131313; }
+    .alert-panel.open .alert-panel-header { border-bottom-color: var(--border); }
+    .alert-panel-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: #777;
+    }
+    .alert-badge {
+      font-size: 10px; font-weight: 700; padding: 2px 8px;
+      border-radius: 10px; background: #2a0d0d; color: var(--red);
+      border: 1px solid #4a1515;
+    }
+    .alert-badge.has-critical { background: #2a0d0d; color: var(--red); border-color: #4a1515; }
+    .alert-badge.all-low      { background: #1a2030; color: var(--blue); border-color: #1e3050; }
+    .alert-toggle {
+      margin-left: auto; font-size: 12px; color: #555; transition: transform .2s;
+    }
+    .alert-panel.open .alert-toggle { transform: rotate(180deg); }
+
+    .alert-body { display: none; padding: 14px 18px; }
+    .alert-panel.open .alert-body { display: block; }
+
+    .alert-group { margin-bottom: 12px; }
+    .alert-group:last-child { margin-bottom: 0; }
+    .alert-group-label {
+      font-size: 9px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--muted); margin-bottom: 6px;
+    }
+    .alert-items { display: flex; flex-direction: column; gap: 5px; }
+
+    .alert-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 8px 12px; border-radius: 6px; border-left: 3px solid;
+      font-size: 12px;
+    }
+    .alert-item.sev-critical { background: rgba(244,67,54,.08); border-color: var(--red); }
+    .alert-item.sev-high     { background: rgba(255,152,0,.08); border-color: #ff9800; }
+    .alert-item.sev-medium   { background: rgba(255,213,79,.06); border-color: var(--yellow); }
+    .alert-item.sev-low      { background: rgba(100,181,246,.06); border-color: var(--blue); }
+    .alert-item.sev-promo    { background: rgba(206,147,216,.06); border-color: #ce93d8; }
+    .alert-item.sev-info     { background: rgba(77,208,225,.05);  border-color: #4dd0e1; }
+
+    .alert-item-title {
+      font-weight: 700; white-space: nowrap;
+      min-width: 120px;
+    }
+    .sev-critical .alert-item-title { color: var(--red); }
+    .sev-high     .alert-item-title { color: #ff9800; }
+    .sev-medium   .alert-item-title { color: var(--yellow); }
+    .sev-low      .alert-item-title { color: var(--blue); }
+    .sev-promo    .alert-item-title { color: #ce93d8; }
+    .sev-info     .alert-item-title { color: #4dd0e1; }
+
+    .alert-item-detail { color: #999; line-height: 1.4; }
+
+    /* ─── CARDS (classificação) ──────────────────────────────────────────── */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 22px 18px;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+      overflow: hidden;
+      user-select: none;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      border-radius: 12px 12px 0 0;
+    }
+    .card:hover { border-color: #333; background: #131313; }
+    .card.active { border-color: #444; background: #141414; }
+
+    .card-all::before         { background: #444; }
+    .card-all.active          { border-color: #555; }
+    .card-critico::before     { background: var(--red); }
+    .card-critico.active      { border-color: #7a2020; background: #120d0d; }
+    .card-oportunidade::before{ background: var(--orange); }
+    .card-oportunidade.active { border-color: #7a5010; background: #120f08; }
+    .card-estavel::before     { background: var(--green); }
+    .card-estavel.active      { border-color: #1e5a1e; background: #0a120a; }
+    .card-descarte::before    { background: #333; }
+    .card-descarte.active     { border-color: #3a3a3a; background: #0f0f0f; }
+
+    .card-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--muted); margin-bottom: 10px;
+    }
+    .card-number { font-size: 40px; font-weight: 700; line-height: 1; letter-spacing: -1px; }
+    .card-sub    { font-size: 11px; color: var(--muted); margin-top: 6px; }
+    .card-bar    { height: 3px; background: var(--border); border-radius: 2px; margin-top: 14px; overflow: hidden; }
+    .card-bar-fill { height: 100%; border-radius: 2px; transition: width .4s; }
+
+    .c-white  { color: #fff; }
+    .c-red    { color: var(--red); }
+    .c-orange { color: var(--orange); }
+    .c-green  { color: var(--green); }
+    .c-gray   { color: #444; }
+    .fill-white  { background: #555; }
+    .fill-red    { background: var(--red); }
+    .fill-orange { background: var(--orange); }
+    .fill-green  { background: var(--green); }
+    .fill-gray   { background: #333; }
+
+    /* ─── KPI CARDS ──────────────────────────────────────────────────────── */
+    .kpi-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .kpi-card-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--muted); margin-bottom: 10px;
+    }
+    .kpi-card-val {
+      font-size: 26px; font-weight: 700; color: #fff; line-height: 1;
+      letter-spacing: -0.5px;
+    }
+    .kpi-card-meta {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 8px; font-size: 11px; color: #555;
+    }
+    .delta {
+      font-size: 11px; font-weight: 700; padding: 2px 7px;
+      border-radius: 4px; white-space: nowrap;
+    }
+    .delta-up   { color: var(--green); background: rgba(76,175,80,.12); }
+    .delta-down { color: var(--red);   background: rgba(244,67,54,.12); }
+    .delta-none { color: #444;         background: #161616; }
+
+    /* ─── CHART + TOP PRODUCTS ROW ───────────────────────────────────────── */
+    .analytics-row {
+      display: grid;
+      grid-template-columns: 62fr 36fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .chart-panel, .top-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .panel-title {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--muted); margin-bottom: 14px;
+    }
+    .chart-wrap { position: relative; height: 220px; }
+
+    /* Top products */
+    .top-list { display: flex; flex-direction: column; gap: 10px; }
+    .top-item { display: flex; flex-direction: column; gap: 4px; }
+    .top-item-header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px;
+    }
+    .top-item-title {
+      font-size: 12px; color: #ccc;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      flex: 1; min-width: 0;
+    }
+    .top-item-giro {
+      font-size: 13px; font-weight: 700; color: var(--orange);
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .top-item-bar-wrap {
+      height: 4px; background: #1a1a1a; border-radius: 2px; overflow: hidden;
+    }
+    .top-item-bar {
+      height: 100%; background: var(--orange); border-radius: 2px;
+      opacity: .6;
+    }
+    .top-item-meta {
+      font-size: 10px; color: #444;
+    }
+
+    /* ─── TOOLBAR ────────────────────────────────────────────────────────── */
+    .toolbar {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 14px;
+    }
+    .result-count { font-size: 11px; color: var(--muted); margin-right: auto; }
+
+    .period-toggle { display: flex; gap: 0; }
+    .period-btn {
+      font-size: 11px; font-weight: 600; padding: 6px 14px;
+      background: #1a1a1a; border: 1px solid var(--border2); color: #555;
+      cursor: pointer; transition: background .15s, color .15s; white-space: nowrap;
+    }
+    .period-btn:first-child { border-radius: 6px 0 0 6px; }
+    .period-btn:last-child  { border-radius: 0 6px 6px 0; border-left: none; }
+    .period-btn.active { background: #252525; color: var(--orange); border-color: #3a3a3a; }
+
+    .search-wrap { position: relative; }
+    .search-wrap svg {
+      position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+      width: 14px; height: 14px; color: var(--muted); pointer-events: none;
+    }
+    input.search {
+      background: #1a1a1a; border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 12px;
+      padding: 7px 12px 7px 32px; width: 220px; outline: none;
+      transition: border-color .15s;
+    }
+    input.search::placeholder { color: #3a3a3a; }
+    input.search:focus { border-color: #444; }
+
+    /* ─── TABLE ──────────────────────────────────────────────────────────── */
+    .table-wrap {
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead { background: var(--surface2); }
+    thead tr { border-bottom: 1px solid #222; }
+
+    th {
+      padding: 11px 16px;
+      text-align: left;
+      font-size: 10px; font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1px;
+      white-space: nowrap;
+      cursor: pointer; user-select: none;
+      transition: color .15s;
+    }
+    th:hover { color: #999; }
+    th.asc::after  { content: " ↑"; color: var(--orange); }
+    th.desc::after { content: " ↓"; color: var(--orange); }
+    th.num { text-align: right; }
+    th.active-col { color: var(--orange); }
+
+    tbody tr {
+      border-bottom: 1px solid #161616;
+      transition: background .08s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #131313; }
+
+    td { padding: 11px 16px; vertical-align: middle; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .td-title {
+      max-width: 300px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+      color: #d0d0d0; font-size: 12.5px;
+    }
+    .td-id { font-size: 10px; color: #333; font-family: monospace; margin-top: 2px; }
+
+    .giro-val { font-size: 14px; font-weight: 700; }
+    .giro-val.zero { color: #2a2a2a; }
+    .giro-val.low  { color: #666; }
+    .giro-val.med  { color: var(--text); }
+    .giro-val.high { color: var(--orange); }
+
+    .col-highlight { background: rgba(245,166,35,.04); }
+
+    .cov { font-size: 13px; font-weight: 600; }
+    .cov.na       { color: #2a2a2a; font-style: italic; font-weight: 400; }
+    .cov.critical { color: var(--red); }
+    .cov.warning  { color: var(--orange); }
+    .cov.ok       { color: var(--green); }
+
+    .trend { font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .trend.acelerando    { color: var(--green); }
+    .trend.desacelerando { color: var(--orange); }
+    .trend.esfriando     { color: var(--red); }
+    .trend.estavel       { color: #3a3a3a; }
+    .trend.neutro        { color: #222; }
+
+    .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+    .chip {
+      font-size: 9px; font-weight: 700; padding: 2px 7px;
+      border-radius: 10px; text-transform: uppercase; letter-spacing: .4px;
+      white-space: nowrap;
+    }
+    .chip-pausado    { background: #241a08; color: #ffb74d; border: 1px solid #3a2a10; }
+    .chip-semest     { background: #2a0d0d; color: #ef9a9a; border: 1px solid #4a1515; }
+    .chip-semrastr   { background: #111a2a; color: #90caf9; border: 1px solid #1e3050; }
+    .chip-esfriando  { background: #2a0d0d; color: #ef9a9a; border: 1px solid #4a1515; }
+    .chip-desacel    { background: #241a08; color: #ffcc80; border: 1px solid #3a2a10; }
+    .chip-acelerando { background: #0d1f0d; color: #a5d6a7; border: 1px solid #153015; }
+    .chip-catalogo   { background: #0d1c2a; color: var(--blue); border: 1px solid #153040; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 10px; font-weight: 700; padding: 4px 10px;
+      border-radius: 20px; text-transform: uppercase; letter-spacing: .5px;
+      white-space: nowrap;
+    }
+    .badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+    .badge-critico      { background: #2a0d0d; color: var(--red);    border: 1px solid #4a1515; }
+    .badge-critico::before { background: var(--red); }
+    .badge-oportunidade { background: #241a08; color: var(--orange); border: 1px solid #3a2a10; }
+    .badge-oportunidade::before { background: var(--orange); }
+    .badge-estavel      { background: #0d1f0d; color: var(--green);  border: 1px solid #153015; }
+    .badge-estavel::before { background: var(--green); }
+    .badge-descarte     { background: #141414; color: #444;          border: 1px solid #222; }
+    .badge-descarte::before { background: #333; }
+
+    .badge-reason {
+      font-size: 10px; color: #3a3a3a; margin-top: 3px;
+      max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    .badge-maturity {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 700; padding: 3px 8px;
+      border-radius: 20px; text-transform: uppercase; letter-spacing: .5px;
+      white-space: nowrap;
+    }
+    .mat-emergindo { background: #170d2a; color: #ce93d8; border: 1px solid #2e1a4a; }
+    .mat-crescendo { background: #0d1829; color: #90caf9; border: 1px solid #1a3050; }
+    .mat-maduro    { background: #0d1e1a; color: #80cbc4; border: 1px solid #1a3830; }
+    .mat-dominante { background: #231500; color: #ffd54f; border: 1px solid #3d2600; }
+
+    .mat-factor { font-size: 9px; color: var(--muted); margin-top: 2px; }
+    .induction  {
+      margin-top: 5px; display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; font-weight: 700; color: var(--orange);
+    }
+    .induction-zero { color: #2a2a2a; font-size: 11px; margin-top: 5px; }
+
+    .empty-row td {
+      padding: 64px 20px; text-align: center;
+      color: #333; font-size: 13px;
+    }
+
+    footer {
+      text-align: center; padding: 32px;
+      font-size: 11px; color: #2a2a2a;
+    }
+
+    /* ─── RESPONSIVE ─────────────────────────────────────────────────────── */
+    @media (max-width: 1200px) {
+      .analytics-row { grid-template-columns: 1fr; }
+      .kpi-cards { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 1100px) {
+      main { padding: 24px 20px 48px; }
+      header { padding: 0 20px; }
+      .cards { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 700px) {
+      .cards { grid-template-columns: repeat(2, 1fr); }
+      .kpi-cards { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ─── HEADER ─────────────────────────────────────────────────────────────── -->
+<header>
+  <a href="/" class="logo">AE<span>G</span>IS</a>
+
+  <div class="header-account">
+    <form method="get" style="display:flex;align-items:center;gap:8px;">
+      <label for="acsel">Conta</label>
+      <select name="account" id="acsel" class="account-sel" onchange="this.form.submit()">
+        {% for acc in authorized %}
+          <option value="{{ acc.name }}"
+            {% if acc.name == account.name %}selected{% endif %}>
+            {{ acc.name }}{% if acc.nickname %} — {{ acc.nickname }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+
+  <div class="header-meta">
+    Atualizado <strong>{{ last_upd }}</strong>
+  </div>
+
+  <div class="header-actions">
+    <a href="/calendario/{{ account.seller_id }}"                                 class="btn btn-ghost">Calendário</a>
+    <a href="/relatorio/{{ account.seller_id }}"                                  class="btn btn-ghost">Relatório</a>
+    <a href="/financeiro/{{ account.seller_id }}"                                 class="btn btn-ghost">Financeiro</a>
+    <a href="/analise-queda/{{ account.seller_id }}"                             class="btn btn-ghost">Análise de Queda</a>
+    <a href="/simulador/{{ account.seller_id }}"                                  class="btn btn-ghost">Simulador</a>
+    <a href="{{ url_for('promotions.promocoes', seller_id=account.seller_id) }}" class="btn btn-ghost">Promoções</a>
+    <a href="{{ url_for('costs.apuracao', seller_id=account.seller_id) }}"       class="btn btn-ghost">Apuração</a>
+    <a href="{{ url_for('costs.custos', seller_id=account.seller_id) }}"          class="btn btn-ghost">Custos</a>
+    <a href="/collect/{{ account.name }}" class="btn btn-primary">↻ Atualizar</a>
+    <a href="/" class="btn btn-ghost">← Contas</a>
+  </div>
+</header>
+
+<!-- ─── FLASHES ────────────────────────────────────────────────────────────── -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flashes">
+      {% for cat, msg in messages %}
+        <div class="flash {{ cat }}">{{ msg }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<main>
+
+  <!-- ─── ALERT PANEL ───────────────────────────────────────────────────── -->
+  {% set all_alerts_count = (alerts | length) + (promo_alerts | length) + (finance_alerts | default([]) | length) %}
+  {% if all_alerts_count > 0 %}
+  {% set has_critical = (alerts + promo_alerts) | selectattr('severity', 'in', ['critical', 'high']) | list | length > 0
+                     or (finance_alerts | default([])) | selectattr('level', 'equalto', 'critical') | list | length > 0 %}
+  <div class="alert-panel{% if has_critical %} open{% endif %}" id="alertPanel">
+    <div class="alert-panel-header" onclick="toggleAlerts()">
+      <span class="alert-panel-title">Alertas</span>
+      <span class="alert-badge {% if has_critical %}has-critical{% else %}all-low{% endif %}">
+        {{ all_alerts_count }}
+      </span>
+      <span class="alert-toggle">▼</span>
+    </div>
+    <div class="alert-body">
+
+      {# ── Alertas operacionais (estoque/tendência) ── #}
+      {% set sev_groups = [('critical', 'Crítico'), ('high', 'Alto'), ('medium', 'Médio'), ('low', 'Baixo')] %}
+      {% for sev_key, sev_label in sev_groups %}
+        {% set group = alerts | selectattr('severity', 'equalto', sev_key) | list %}
+        {% if group %}
+        <div class="alert-group">
+          <div class="alert-group-label">{{ sev_label }}</div>
+          <div class="alert-items">
+            {% for a in group %}
+            <div class="alert-item sev-{{ a.severity }}">
+              <span class="alert-item-title">{{ a.title }}</span>
+              <span class="alert-item-detail">{{ a.detail }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      {% endfor %}
+
+      {# ── Promoções ativas ── #}
+      {% if promo_alerts %}
+      <div class="alert-group">
+        <div class="alert-group-label">Promoções ML</div>
+        <div class="alert-items">
+          {% for a in promo_alerts %}
+          <div class="alert-item sev-{{ a.severity }}">
+            <span class="alert-item-title">{{ a.title }}</span>
+            <span class="alert-item-detail">
+              {{ a.detail }}
+              <a href="{{ url_for('promotions.promocoes', seller_id=account.seller_id) }}"
+                 style="color:var(--orange);margin-left:6px">ver rentabilidade →</a>
+            </span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# ── Informativo (catálogo ML) ── #}
+      {% set info_group = alerts | selectattr('severity', 'equalto', 'info') | list %}
+      {% if info_group %}
+      <div class="alert-group">
+        <div class="alert-group-label">Informativo</div>
+        <div class="alert-items">
+          {% for a in info_group %}
+          <div class="alert-item sev-info">
+            <span class="alert-item-title">{{ a.title }}</span>
+            <span class="alert-item-detail">{{ a.detail }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# ── Alertas Financeiros (MP) ── #}
+      {% if finance_alerts | default([]) %}
+      <div class="alert-group">
+        <div class="alert-group-label">Financeiro MP</div>
+        <div class="alert-items">
+          {% for fa in finance_alerts %}
+          <div class="alert-item sev-{{ 'critical' if fa.level == 'critical' else 'medium' if fa.level == 'warning' else 'low' }}">
+            <span class="alert-item-title">{{ fa.icon }} {{ fa.message }}</span>
+            <span class="alert-item-detail">
+              {{ fa.detail }}
+              <a href="/financeiro/{{ account.seller_id }}"
+                 style="color:var(--orange);margin-left:6px">ver financeiro →</a>
+            </span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ─── CLASSIFICATION CARDS ──────────────────────────────────────────── -->
+  {% set pct = namespace() %}
+  {% set pct.crit = ((totals.critico      / totals.total * 100) | round(0) | int) if totals.total else 0 %}
+  {% set pct.opor = ((totals.oportunidade / totals.total * 100) | round(0) | int) if totals.total else 0 %}
+  {% set pct.est  = ((totals.estavel      / totals.total * 100) | round(0) | int) if totals.total else 0 %}
+  {% set pct.desc = ((totals.descarte     / totals.total * 100) | round(0) | int) if totals.total else 0 %}
+
+  <div class="cards">
+    <div class="card card-all active" data-filter="all" onclick="filterByCard(this)">
+      <div class="card-label">Total</div>
+      <div class="card-number c-white">{{ totals.total }}</div>
+      <div class="card-sub">anúncios</div>
+      <div class="card-bar"><div class="card-bar-fill fill-white" style="width:100%"></div></div>
+    </div>
+    <div class="card card-critico" data-filter="Crítico" onclick="filterByCard(this)">
+      <div class="card-label">Crítico</div>
+      <div class="card-number c-red">{{ totals.critico }}</div>
+      <div class="card-sub">{{ pct.crit }}% — reposição urgente</div>
+      <div class="card-bar"><div class="card-bar-fill fill-red" style="width:{{ pct.crit }}%"></div></div>
+    </div>
+    <div class="card card-oportunidade" data-filter="Oportunidade" onclick="filterByCard(this)">
+      <div class="card-label">Oportunidade</div>
+      <div class="card-number c-orange">{{ totals.oportunidade }}</div>
+      <div class="card-sub">{{ pct.opor }}% — ação necessária</div>
+      <div class="card-bar"><div class="card-bar-fill fill-orange" style="width:{{ pct.opor }}%"></div></div>
+    </div>
+    <div class="card card-estavel" data-filter="Estável" onclick="filterByCard(this)">
+      <div class="card-label">Estável</div>
+      <div class="card-number c-green">{{ totals.estavel }}</div>
+      <div class="card-sub">{{ pct.est }}% — saudável</div>
+      <div class="card-bar"><div class="card-bar-fill fill-green" style="width:{{ pct.est }}%"></div></div>
+    </div>
+    <div class="card card-descarte" data-filter="Descarte" onclick="filterByCard(this)">
+      <div class="card-label">Descarte</div>
+      <div class="card-number c-gray">{{ totals.descarte }}</div>
+      <div class="card-sub">{{ pct.desc }}% — sem vendas 30d</div>
+      <div class="card-bar"><div class="card-bar-fill fill-gray" style="width:{{ pct.desc }}%"></div></div>
+    </div>
+  </div>
+
+  <!-- ─── KPI CARDS ─────────────────────────────────────────────────────── -->
+  <div class="kpi-cards">
+
+    <!-- Receita Bruta -->
+    <div class="kpi-card">
+      <div class="kpi-card-label">Receita Bruta — 30d</div>
+      <div class="kpi-card-val">{{ kpis.revenue.val | brl }}</div>
+      <div class="kpi-card-meta">
+        {% if kpis.revenue.delta is not none %}
+          {% if kpis.revenue.delta >= 0 %}
+            <span class="delta delta-up">▲ {{ "%.1f" | format(kpis.revenue.delta) }}%</span>
+          {% else %}
+            <span class="delta delta-down">▼ {{ "%.1f" | format(kpis.revenue.delta | abs) }}%</span>
+          {% endif %}
+        {% else %}
+          <span class="delta delta-none">—</span>
+        {% endif %}
+        <span>vs. 30d anteriores</span>
+      </div>
+      <div style="font-size:10px;color:#333;margin-top:6px">
+        Fonte: tabela orders · {{ kpis.orders.val }} pedidos · orders × price
+      </div>
+    </div>
+
+    <!-- Unidades -->
+    <div class="kpi-card">
+      <div class="kpi-card-label">Unidades — 30d</div>
+      <div class="kpi-card-val">{{ kpis.units.val }}</div>
+      <div class="kpi-card-meta">
+        {% if kpis.units.delta is not none %}
+          {% if kpis.units.delta >= 0 %}
+            <span class="delta delta-up">▲ {{ "%.1f" | format(kpis.units.delta) }}%</span>
+          {% else %}
+            <span class="delta delta-down">▼ {{ "%.1f" | format(kpis.units.delta | abs) }}%</span>
+          {% endif %}
+        {% else %}
+          <span class="delta delta-none">—</span>
+        {% endif %}
+        <span>vs. 30d anteriores</span>
+      </div>
+    </div>
+
+    <!-- Pedidos -->
+    <div class="kpi-card">
+      <div class="kpi-card-label">Pedidos — 30d</div>
+      <div class="kpi-card-val">{{ kpis.orders.val }}</div>
+      <div class="kpi-card-meta">
+        {% if kpis.orders.delta is not none %}
+          {% if kpis.orders.delta >= 0 %}
+            <span class="delta delta-up">▲ {{ "%.1f" | format(kpis.orders.delta) }}%</span>
+          {% else %}
+            <span class="delta delta-down">▼ {{ "%.1f" | format(kpis.orders.delta | abs) }}%</span>
+          {% endif %}
+        {% else %}
+          <span class="delta delta-none">—</span>
+        {% endif %}
+        <span>vs. 30d anteriores</span>
+      </div>
+    </div>
+
+    <!-- Ticket Médio -->
+    <div class="kpi-card">
+      <div class="kpi-card-label">Ticket Médio — 30d</div>
+      <div class="kpi-card-val">{{ kpis.avg_ticket.val | brl }}</div>
+      <div class="kpi-card-meta">
+        {% if kpis.avg_ticket.delta is not none %}
+          {% if kpis.avg_ticket.delta >= 0 %}
+            <span class="delta delta-up">▲ {{ "%.1f" | format(kpis.avg_ticket.delta) }}%</span>
+          {% else %}
+            <span class="delta delta-down">▼ {{ "%.1f" | format(kpis.avg_ticket.delta | abs) }}%</span>
+          {% endif %}
+        {% else %}
+          <span class="delta delta-none">—</span>
+        {% endif %}
+        <span>vs. 30d anteriores</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ─── MARGIN HEALTH ────────────────────────────────────────────────── -->
+  {% set ms = margin_summary %}
+  <div class="margin-health">
+
+    <div class="mh-cell">
+      <div class="mh-cell-label">Margem Média — 30d</div>
+      {% if ms.margem_pct is none %}
+        <div class="mh-cell-val" style="color:#333">—</div>
+        <div class="mh-cell-sub">
+          <a href="{{ url_for('costs.custos', seller_id=account.seller_id) }}">Cadastrar custos →</a>
+        </div>
+      {% elif ms.margem_pct < 0 %}
+        <div class="mh-cell-val" style="color:var(--red)">{{ ms.margem_pct }}%</div>
+        <div class="mh-cell-sub" style="color:var(--red)">operação no prejuízo</div>
+      {% elif ms.margem_pct < 10 %}
+        <div class="mh-cell-val" style="color:var(--yellow)">{{ ms.margem_pct }}%</div>
+        <div class="mh-cell-sub" style="color:var(--yellow)">margem baixa</div>
+      {% elif ms.margem_pct < 20 %}
+        <div class="mh-cell-val" style="color:var(--blue)">{{ ms.margem_pct }}%</div>
+        <div class="mh-cell-sub">margem moderada</div>
+      {% else %}
+        <div class="mh-cell-val" style="color:var(--green)">{{ ms.margem_pct }}%</div>
+        <div class="mh-cell-sub" style="color:var(--green)">margem saudável</div>
+      {% endif %}
+    </div>
+
+    <div class="mh-cell">
+      <div class="mh-cell-label">Margem Negativa</div>
+      {% if ms.negativas > 0 %}
+        <div class="mh-cell-val" style="color:var(--red)">{{ ms.negativas }}</div>
+        <div class="mh-cell-sub">
+          produtos vendendo no prejuízo ·
+          <a href="{{ url_for('costs.apuracao', seller_id=account.seller_id) }}">ver →</a>
+        </div>
+      {% else %}
+        <div class="mh-cell-val" style="color:#2a2a2a">0</div>
+        <div class="mh-cell-sub">nenhuma margem negativa</div>
+      {% endif %}
+    </div>
+
+    <div class="mh-cell">
+      <div class="mh-cell-label">Margem &lt; 10%</div>
+      {% if ms.abaixo_10 > 0 %}
+        <div class="mh-cell-val" style="color:var(--yellow)">{{ ms.abaixo_10 }}</div>
+        <div class="mh-cell-sub">
+          produtos com atenção ·
+          <a href="{{ url_for('costs.apuracao', seller_id=account.seller_id) }}">ver →</a>
+        </div>
+      {% else %}
+        <div class="mh-cell-val" style="color:#2a2a2a">0</div>
+        <div class="mh-cell-sub">todos acima de 10%</div>
+      {% endif %}
+    </div>
+
+    <div class="mh-cell">
+      <div class="mh-cell-label">Prejuízo Acumulado — 30d</div>
+      {% if ms.prejuizo_total < 0 %}
+        <div class="mh-cell-val" style="color:var(--red)">R$ {{ '%.2f'|format(ms.prejuizo_total) }}</div>
+        <div class="mh-cell-sub">
+          <a href="{{ url_for('costs.apuracao', seller_id=account.seller_id) }}">ver apuração completa →</a>
+        </div>
+      {% elif ms.sem_custo > 0 %}
+        <div class="mh-cell-val" style="color:#333">R$ 0,00</div>
+        <div class="mh-cell-sub">
+          {{ ms.sem_custo }} produto(s) sem custo ·
+          <a href="{{ url_for('costs.custos', seller_id=account.seller_id) }}">configurar →</a>
+        </div>
+      {% else %}
+        <div class="mh-cell-val" style="color:var(--green)">R$ 0,00</div>
+        <div class="mh-cell-sub">sem prejuízo registrado</div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- ─── CHART + TOP PRODUCTS ──────────────────────────────────────────── -->
+  <div class="analytics-row">
+
+    <!-- Chart -->
+    <div class="chart-panel">
+      <div class="panel-title">Vendas diárias — últimos 30 dias</div>
+      <div class="chart-wrap">
+        <canvas id="salesChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Top 7 products -->
+    <div class="top-panel">
+      <div class="panel-title">Top produtos por giro (7d)</div>
+      <div class="top-list">
+        {% for item in top_items %}
+        <div class="top-item">
+          <div class="top-item-header">
+            <span class="top-item-title" title="{{ item.title }}">{{ item.title }}</span>
+            <span class="top-item-giro">{{ item.giro_7d }}/d</span>
+          </div>
+          <div class="top-item-bar-wrap">
+            <div class="top-item-bar" style="width: {{ ((item.giro_7d / max_giro) * 100) | round(1) }}%"></div>
+          </div>
+          <div class="top-item-meta">
+            {% set ms = item.maturity_stage %}
+            {% if   ms == 'Emergindo'  %}<span style="color:#ce93d8">◎ Emergindo</span>
+            {% elif ms == 'Crescendo'  %}<span style="color:#90caf9">↑ Crescendo</span>
+            {% elif ms == 'Maduro'     %}<span style="color:#80cbc4">✦ Maduro</span>
+            {% else                    %}<span style="color:#ffd54f">★ Dominante</span>
+            {% endif %}
+            &nbsp;·&nbsp;
+            {% set cls = item.classification %}
+            {% if   cls == 'Crítico'      %}<span style="color:var(--red)">Crítico</span>
+            {% elif cls == 'Oportunidade' %}<span style="color:var(--orange)">Oportunidade</span>
+            {% elif cls == 'Estável'      %}<span style="color:var(--green)">Estável</span>
+            {% else                       %}<span style="color:#444">Descarte</span>
+            {% endif %}
+          </div>
+        </div>
+        {% else %}
+        <div style="color:#333;font-size:12px;padding:20px 0;text-align:center">Nenhum item com giro ativo.</div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ─── TOOLBAR ───────────────────────────────────────────────────────── -->
+  <div class="toolbar">
+    <span class="result-count" id="resultCount">{{ items|length }} anúncios</span>
+
+    <div class="period-toggle">
+      <button class="period-btn active" id="btn7d"  onclick="setPeriod('7d')">7d</button>
+      <button class="period-btn"        id="btn30d" onclick="setPeriod('30d')">30d</button>
+    </div>
+
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input class="search" id="searchInput" type="text" placeholder="Buscar título ou ID…">
+    </div>
+  </div>
+
+  <!-- ─── TABLE ─────────────────────────────────────────────────────────── -->
+  <div class="table-wrap">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th data-col="title">Anúncio</th>
+          <th data-col="giro_7d"  class="num active-col" id="thGiro7d"  style="width:88px">Giro 7d</th>
+          <th data-col="giro_30d" class="num"             id="thGiro30d" style="width:88px">Giro 30d</th>
+          <th data-col="coverage" class="num" style="width:96px">Cobertura</th>
+          <th data-col="trend"  style="width:110px">Tendência</th>
+          <th style="width:160px">Alertas</th>
+          <th data-col="class" style="width:170px">Classificação</th>
+          <th data-col="maturity" style="width:155px">Maturidade</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr data-class="{{ item.classification }}"
+            style="cursor:pointer"
+            onclick="window.location='/produto/{{ account.seller_id }}/{{ item.id }}'">
+
+          <!-- Anúncio -->
+          <td>
+            <div class="td-title" title="{{ item.title }}">{{ item.title }}</div>
+            <div class="td-id">{{ item.id }}</div>
+          </td>
+
+          <!-- Giro 7d -->
+          <td class="num col-7d">
+            {% if item.giro_7d == 0 %}
+              <span class="giro-val zero">—</span>
+            {% elif item.giro_7d < 0.5 %}
+              <span class="giro-val low">{{ item.giro_7d }}</span>
+            {% elif item.giro_7d < 2 %}
+              <span class="giro-val med">{{ item.giro_7d }}</span>
+            {% else %}
+              <span class="giro-val high">{{ item.giro_7d }}</span>
+            {% endif %}
+          </td>
+
+          <!-- Giro 30d -->
+          <td class="num col-30d" style="color:#555">
+            {{ item.giro_30d if item.giro_30d > 0 else "—" }}
+          </td>
+
+          <!-- Cobertura -->
+          <td class="num">
+            {% if item.coverage_days is none %}
+              <span class="cov na">—</span>
+            {% elif item.coverage_days < 7 %}
+              <span class="cov critical">{{ item.coverage_days }}d</span>
+            {% elif item.coverage_days < 30 %}
+              <span class="cov warning">{{ item.coverage_days }}d</span>
+            {% else %}
+              <span class="cov ok">{{ item.coverage_days }}d</span>
+            {% endif %}
+          </td>
+
+          <!-- Tendência -->
+          <td>
+            {% if item.trend == 'acelerando' %}
+              <span class="trend acelerando">↑ acelerando</span>
+            {% elif item.trend == 'desacelerando' %}
+              <span class="trend desacelerando">↘ desacel.</span>
+            {% elif item.trend == 'esfriando' %}
+              <span class="trend esfriando">↓ esfriando</span>
+            {% elif item.trend == 'estável' %}
+              <span class="trend estavel">→ estável</span>
+            {% else %}
+              <span class="trend neutro">—</span>
+            {% endif %}
+          </td>
+
+          <!-- Alertas -->
+          <td>
+            <div class="chips">
+              {% for a in item.alerts %}
+                {% if   a == 'pausado'                %}<span class="chip chip-pausado">pausado</span>
+                {% elif a == 'sem estoque'             %}<span class="chip chip-semest">sem est.</span>
+                {% elif a == 'estoque não rastreado'   %}<span class="chip chip-semrastr">sem rastr.</span>
+                {% elif a == 'esfriando'               %}<span class="chip chip-esfriando">esfriando</span>
+                {% elif a == 'desacelerando'           %}<span class="chip chip-desacel">desacel.</span>
+                {% elif a == 'acelerando'              %}<span class="chip chip-acelerando">acelerando</span>
+                {% elif a == 'catálogo'                %}<span class="chip chip-catalogo">catálogo</span>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </td>
+
+          <!-- Classificação -->
+          <td>
+            {% set cls = item.classification %}
+            {% if   cls == 'Crítico'      %}<span class="badge badge-critico">Crítico</span>
+            {% elif cls == 'Oportunidade' %}<span class="badge badge-oportunidade">Oportunidade</span>
+            {% elif cls == 'Estável'      %}<span class="badge badge-estavel">Estável</span>
+            {% else                       %}<span class="badge badge-descarte">Descarte</span>
+            {% endif %}
+            <div class="badge-reason" title="{{ item.reason }}">{{ item.reason }}</div>
+          </td>
+
+          <!-- Maturidade + Indução -->
+          <td>
+            {% set ms = item.maturity_stage %}
+            {% if   ms == 'Emergindo'  %}<span class="badge-maturity mat-emergindo">◎ Emergindo</span>
+            {% elif ms == 'Crescendo'  %}<span class="badge-maturity mat-crescendo">↑ Crescendo</span>
+            {% elif ms == 'Maduro'     %}<span class="badge-maturity mat-maduro">✦ Maduro</span>
+            {% else                    %}<span class="badge-maturity mat-dominante">★ Dominante</span>
+            {% endif %}
+            <div class="mat-factor">
+              {{ item.sold_quantity }} vendidos · fator ×{{ item.maturity_factor }}
+            </div>
+            {% if item.induction_qty > 0 %}
+              <div class="induction">↑ induzir {{ item.induction_qty }} un</div>
+            {% else %}
+              <div class="induction-zero">— sem sugestão</div>
+            {% endif %}
+          </td>
+
+        </tr>
+        {% else %}
+        <tr class="empty-row"><td colspan="8">Nenhum anúncio. Rode a coleta primeiro.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<footer>AEGIS · {{ account.name }} · {{ account.seller_id }}</footer>
+
+<!-- ─── CHART.JS ────────────────────────────────────────────────────────────── -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script>
+// ─── Chart ─────────────────────────────────────────────────────────────────
+const chartData = {{ chart | tojson }};
+const ctx = document.getElementById('salesChart').getContext('2d');
+new Chart(ctx, {
+  data: {
+    labels: chartData.labels,
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Unidades',
+        data: chartData.units,
+        backgroundColor: 'rgba(76, 175, 80, 0.25)',
+        borderColor: 'rgba(76, 175, 80, 0.6)',
+        borderWidth: 1,
+        yAxisID: 'yUnits',
+        order: 2,
+      },
+      {
+        type: 'line',
+        label: 'Receita',
+        data: chartData.revenue,
+        borderColor: '#f5a623',
+        backgroundColor: 'rgba(245, 166, 35, 0.08)',
+        borderWidth: 2,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        fill: true,
+        tension: 0.35,
+        yAxisID: 'yRevenue',
+        order: 1,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: {
+        grid: { color: '#161616' },
+        ticks: { color: '#444', font: { size: 10 }, maxRotation: 45 }
+      },
+      yUnits: {
+        type: 'linear',
+        position: 'left',
+        grid: { color: '#1a1a1a' },
+        ticks: { color: '#4caf50', font: { size: 10 } },
+        title: { display: true, text: 'Unidades', color: '#4caf50', font: { size: 10 } }
+      },
+      yRevenue: {
+        type: 'linear',
+        position: 'right',
+        grid: { drawOnChartArea: false },
+        ticks: {
+          color: '#f5a623',
+          font: { size: 10 },
+          callback: v => 'R$' + (v >= 1000 ? (v/1000).toFixed(1)+'k' : v.toFixed(0))
+        },
+        title: { display: true, text: 'Receita', color: '#f5a623', font: { size: 10 } }
+      }
+    },
+    plugins: {
+      legend: { labels: { color: '#666', font: { size: 11 }, boxWidth: 12 } },
+      tooltip: {
+        backgroundColor: '#1a1a1a',
+        borderColor: '#2a2a2a',
+        borderWidth: 1,
+        titleColor: '#aaa',
+        bodyColor: '#e0e0e0',
+        callbacks: {
+          label: ctx => ctx.dataset.yAxisID === 'yRevenue'
+            ? ' R$ ' + ctx.parsed.y.toLocaleString('pt-BR', {minimumFractionDigits: 2})
+            : ' ' + ctx.parsed.y + ' unidades'
+        }
+      }
+    }
+  }
+});
+
+// ─── Alert panel toggle ────────────────────────────────────────────────────
+function toggleAlerts() {
+  document.getElementById('alertPanel').classList.toggle('open');
+}
+
+// ─── Period toggle ─────────────────────────────────────────────────────────
+let activePeriod = '7d';
+
+function setPeriod(p) {
+  activePeriod = p;
+  document.getElementById('btn7d').classList.toggle('active',  p === '7d');
+  document.getElementById('btn30d').classList.toggle('active', p === '30d');
+
+  // highlight the active giro column header
+  document.getElementById('thGiro7d').classList.toggle('active-col',  p === '7d');
+  document.getElementById('thGiro30d').classList.toggle('active-col', p === '30d');
+
+  // highlight cells
+  document.querySelectorAll('.col-7d').forEach(td =>
+    td.classList.toggle('col-highlight', p === '7d'));
+  document.querySelectorAll('.col-30d').forEach(td =>
+    td.classList.toggle('col-highlight', p === '30d'));
+}
+
+// Apply initial highlight
+setPeriod('7d');
+
+// ─── Filter state ──────────────────────────────────────────────────────────
+let activeFilter = "{{ active_filter or 'all' }}";
+let searchQuery  = "";
+// Apply URL-based filter on page load
+if (activeFilter && activeFilter !== "all" && activeFilter !== "None") {
+  document.querySelectorAll(".card").forEach(c => {
+    c.classList.toggle("active", c.dataset.filter === activeFilter);
+  });
+  applyFilters();
+}
+
+function filterByCard(card) {
+  const f = card.dataset.filter;
+  activeFilter = (f === activeFilter && f !== "all") ? "all" : f;
+  document.querySelectorAll(".card").forEach(c => {
+    c.classList.toggle("active", c.dataset.filter === activeFilter);
+  });
+  applyFilters();
+}
+
+document.getElementById("searchInput").addEventListener("input", e => {
+  searchQuery = e.target.value.toLowerCase().trim();
+  applyFilters();
+});
+
+function applyFilters() {
+  let visible = 0;
+  document.querySelectorAll("#tbl tbody tr[data-class]").forEach(row => {
+    const matchClass  = activeFilter === "all" || row.dataset.class === activeFilter;
+    const titleText   = row.querySelector(".td-title")?.textContent.toLowerCase() || "";
+    const idText      = row.querySelector(".td-id")?.textContent.toLowerCase()    || "";
+    const matchSearch = !searchQuery || titleText.includes(searchQuery) || idText.includes(searchQuery);
+    const show        = matchClass && matchSearch;
+    row.style.display = show ? "" : "none";
+    if (show) visible++;
+  });
+  document.getElementById("resultCount").textContent =
+    visible + " anúncio" + (visible !== 1 ? "s" : "");
+}
+
+// ─── Sort ──────────────────────────────────────────────────────────────────
+let sortCol = null, sortDir = 1;
+
+document.querySelectorAll("th[data-col]").forEach(th => {
+  th.addEventListener("click", () => {
+    const col = th.dataset.col;
+    sortDir = (col === sortCol) ? -sortDir : -1;
+    sortCol = col;
+
+    document.querySelectorAll("th").forEach(t => t.classList.remove("asc", "desc"));
+    th.classList.add(sortDir === 1 ? "asc" : "desc");
+
+    const tbody = document.querySelector("#tbl tbody");
+    const rows  = [...tbody.querySelectorAll("tr[data-class]")];
+
+    rows.sort((a, b) => {
+      const va = colValue(a, col);
+      const vb = colValue(b, col);
+      if (typeof va === "number") return (va - vb) * sortDir;
+      return va.localeCompare(vb, "pt") * sortDir;
+    });
+
+    rows.forEach(r => tbody.appendChild(r));
+  });
+});
+
+function colValue(row, col) {
+  switch (col) {
+    case "title":
+      return row.querySelector(".td-title")?.textContent.trim() || "";
+    case "giro_7d":
+      return parseFloat(row.querySelector("td:nth-child(2) .giro-val")?.textContent) || 0;
+    case "giro_30d":
+      return parseFloat(row.querySelector("td:nth-child(3)")?.textContent) || 0;
+    case "coverage":
+      return parseFloat(row.querySelector(".cov")?.textContent) || 0;
+    case "trend":
+      return row.querySelector(".trend")?.textContent.trim() || "";
+    case "class": {
+      const order = { "Crítico": 0, "Oportunidade": 1, "Estável": 2, "Descarte": 3 };
+      return order[row.dataset.class] ?? 99;
+    }
+    case "maturity": {
+      const order = { "Emergindo": 0, "Crescendo": 1, "Maduro": 2, "Dominante": 3 };
+      const label = row.querySelector(".badge-maturity")?.textContent.trim() || "";
+      for (const [k, v] of Object.entries(order)) if (label.includes(k)) return v;
+      return 99;
+    }
+    default: return "";
+  }
+}
+</script>
+
+</body>
+</html>

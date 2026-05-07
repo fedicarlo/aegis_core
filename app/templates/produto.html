@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ item.title[:60] }} — AEGIS</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d0d0d; --bg2: #141414; --bg3: #1a1a1a;
+      --orange: #f5a623; --green: #4caf50; --red: #f44336;
+      --teal: #26c6da; --purple: #ab47bc;
+      --text: #e0e0e0; --muted: #888; --border: #2a2a2a;
+      --card-bg: #181818;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; font-size: 14px; }
+
+    /* Nav */
+    .nav { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; gap: 20px; }
+    .nav-brand { color: var(--orange); font-weight: 700; font-size: 18px; letter-spacing: 1px; text-decoration: none; }
+    .nav a { color: var(--muted); text-decoration: none; font-size: 13px; }
+    .nav a:hover { color: var(--text); }
+    .nav-sep { color: var(--border); }
+    .nav-right { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+    .btn-sm { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; text-decoration: none; display: inline-block; }
+    .btn-orange { background: var(--orange); color: #000; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+
+    /* Layout */
+    .page { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+    /* Product header */
+    .prod-header { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 24px; }
+    .prod-info { flex: 1; }
+    .prod-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .prod-meta { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .prod-id { color: var(--muted); font-size: 12px; font-family: monospace; }
+    .prod-price { font-size: 22px; font-weight: 700; color: var(--orange); }
+    .prod-status { font-size: 12px; padding: 3px 10px; border-radius: 12px; }
+    .status-active  { background: rgba(76,175,80,.2); color: var(--green); border: 1px solid var(--green); }
+    .status-paused  { background: rgba(244,67,54,.2); color: var(--red); border: 1px solid var(--red); }
+
+    /* Risk banner */
+    .risk-banner { border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+    .risk-banner.RUPTURA  { background: rgba(244,67,54,.15); border: 1px solid var(--red); }
+    .risk-banner.CRITICO  { background: rgba(244,67,54,.12); border: 1px solid #d32f2f; }
+    .risk-banner.URGENTE  { background: rgba(255,152,0,.12); border: 1px solid #ff9800; }
+    .risk-banner.ATENCAO  { background: rgba(255,193,7,.10); border: 1px solid #ffc107; }
+    .risk-banner.ESTAVEL  { background: rgba(76,175,80,.08); border: 1px solid #2e7d32; }
+    .risk-level { font-size: 20px; font-weight: 700; }
+    .risk-score-big { font-size: 40px; font-weight: 900; }
+    .risk-stat { text-align: center; }
+    .risk-stat .val { font-size: 18px; font-weight: 700; }
+    .risk-stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+
+    /* KPI grid */
+    .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 24px; }
+    .kpi-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+    .kpi-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px; }
+    .kpi-card .value { font-size: 22px; font-weight: 700; }
+    .kpi-card .sub   { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .kpi-orange { color: var(--orange); }
+    .kpi-red    { color: var(--red); }
+    .kpi-green  { color: var(--green); }
+    .kpi-teal   { color: var(--teal); }
+
+    /* Sections */
+    .section { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+    .section-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--orange); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+    /* Chart */
+    .chart-wrap { position: relative; height: 260px; }
+
+    /* Two columns */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+    /* Induction slider */
+    .slider-row { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+    .slider-row label { font-size: 12px; color: var(--muted); width: 120px; }
+    input[type=range] { flex: 1; accent-color: var(--orange); }
+    .slider-val { font-size: 14px; font-weight: 700; color: var(--orange); width: 50px; text-align: right; }
+    .induction-result { background: var(--bg3); border-radius: 8px; padding: 16px; margin-top: 12px; text-align: center; }
+    .induction-qty { font-size: 48px; font-weight: 900; color: var(--orange); }
+    .induction-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .induction-badge { display: inline-block; margin-top: 8px; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+    .state-saudavel      { background: rgba(76,175,80,.2); color: var(--green); }
+    .state-recuperacao   { background: rgba(255,152,0,.2); color: #ff9800; }
+    .state-queda         { background: rgba(244,67,54,.2); color: var(--red); }
+
+    /* Margin table */
+    .margin-table { width: 100%; border-collapse: collapse; }
+    .margin-table th { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .8px; padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+    .margin-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    .margin-table tr:last-child td { border-bottom: none; }
+    .margem-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; }
+    .margem-neg  { background: rgba(244,67,54,.2); color: var(--red); }
+    .margem-low  { background: rgba(255,193,7,.2); color: #ffc107; }
+    .margem-mid  { background: rgba(245,166,35,.2); color: var(--orange); }
+    .margem-good { background: rgba(76,175,80,.2); color: var(--green); }
+
+    /* Promo section */
+    .promo-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; background: rgba(171,71,188,.2); color: var(--purple); }
+
+    /* Impact block */
+    .impact-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .impact-cell { background: var(--bg3); border-radius: 8px; padding: 14px; text-align: center; }
+    .impact-cell .val { font-size: 20px; font-weight: 700; }
+    .impact-cell .lbl { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* Score components */
+    .component-bars { display: flex; flex-direction: column; gap: 8px; }
+    .comp-row { display: flex; align-items: center; gap: 10px; }
+    .comp-label { font-size: 12px; color: var(--muted); width: 80px; }
+    .comp-bar-wrap { flex: 1; background: var(--bg3); border-radius: 3px; height: 8px; overflow: hidden; }
+    .comp-bar-fill { height: 100%; border-radius: 3px; }
+    .comp-val { font-size: 12px; font-weight: 700; width: 36px; text-align: right; }
+
+    /* Price history */
+    .price-hist-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .price-hist-row:last-child { border-bottom: none; }
+    .ph-date { color: var(--muted); font-size: 11px; }
+    .ph-arrow { color: var(--muted); }
+    .ph-old { text-decoration: line-through; color: var(--muted); }
+    .ph-new { color: var(--orange); font-weight: 600; }
+
+    /* Competitor analysis */
+    .market-summary {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
+      margin-bottom: 18px;
+    }
+    .mkt-card {
+      background: var(--bg3); border-radius: 8px; padding: 14px 16px; text-align: center;
+      border: 1px solid var(--border);
+    }
+    .mkt-card .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px; }
+    .mkt-card .val { font-size: 20px; font-weight: 700; }
+    .pos-acima  { border-color: #f44336 !important; }
+    .pos-abaixo { border-color: #4caf50 !important; }
+    .pos-media  { border-color: #ff9800 !important; }
+    .pos-acima  .val { color: var(--red); }
+    .pos-abaixo .val { color: var(--green); }
+    .pos-media  .val { color: #ff9800; }
+
+    .comp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .comp-table th {
+      font-size: 10px; text-transform: uppercase; color: var(--muted); letter-spacing: .8px;
+      padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+    }
+    .comp-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .comp-table tbody tr:last-child td { border-bottom: none; }
+    .comp-table tbody tr:hover { background: rgba(245,166,35,.03); }
+
+    .comp-title { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .comp-title a { color: var(--text); text-decoration: none; }
+    .comp-title a:hover { color: var(--orange); }
+
+    .tag-full    { background: rgba(38,198,218,.15); color: var(--teal);   border: 1px solid rgba(38,198,218,.3); }
+    .tag-catalog { background: rgba(171,71,188,.15); color: var(--purple); border: 1px solid rgba(171,71,188,.3); }
+    .tag-normal  { background: rgba(255,255,255,.05); color: #555; border: 1px solid #222; }
+    .comp-tag { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 700; }
+
+    .rep-5 { color: #4caf50; } .rep-4 { color: #8bc34a; } .rep-3 { color: #ffc107; }
+    .rep-2 { color: #ff9800; } .rep-1 { color: #f44336; } .rep-x { color: #555; }
+
+    .price-cheaper { color: var(--green); font-weight: 700; }
+    .price-parity  { color: #ff9800;      font-weight: 700; }
+    .price-dearer  { color: var(--red);   font-weight: 700; }
+
+    @media (max-width: 1100px) {
+      .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+      .two-col  { grid-template-columns: 1fr; }
+      .impact-grid { grid-template-columns: repeat(2, 1fr); }
+      .market-summary { grid-template-columns: repeat(3, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a class="nav-brand" href="/">AEGIS</a>
+  <span class="nav-sep">|</span>
+  <a href="/dashboard?account={{ account.name }}">Dashboard</a>
+  <a href="/calendario/{{ seller_id }}">Calendário</a>
+  <a href="/custos/{{ seller_id }}">Custos</a>
+  <a href="/apuracao/{{ seller_id }}">Apuração</a>
+  <a href="/promocoes/{{ seller_id }}">Promoções</a>
+  <div class="nav-right">
+    <span style="color:var(--green);font-size:12px">● {{ account.name }}</span>
+  </div>
+</nav>
+
+<div class="page">
+
+  <!-- Product header -->
+  <div class="prod-header">
+    <div class="prod-info">
+      <div class="prod-title">{{ item.title }}</div>
+      <div class="prod-meta">
+        <span class="prod-id">{{ item.id }}</span>
+        <span class="prod-price">{{ item.price | brl }}</span>
+        {% if item.status == 'active' %}
+          <span class="prod-status status-active">Ativo</span>
+        {% else %}
+          <span class="prod-status status-paused">{{ item.status | title }}</span>
+        {% endif %}
+        {% if item.maturity_stage %}
+          <span style="font-size:12px;color:var(--muted)">{{ item.maturity_stage }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Risk banner -->
+  {% set risk_cls = risk.level | replace('Í','I') | replace('Ã','A') | replace('É','E') %}
+  <div class="risk-banner {{ risk_cls }}">
+    <div>
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Nível de Risco</div>
+      <div class="risk-level" style="color:{{ risk.color }}">{{ risk.level }}</div>
+    </div>
+    <div class="risk-stat">
+      <div class="risk-score-big" style="color:{{ risk.color }}">{{ risk.score }}</div>
+      <div class="lbl">Score / 100</div>
+    </div>
+    {% if risk.days_until_rupture is not none %}
+    <div class="risk-stat">
+      <div class="val" style="color:{{ risk.color }}">
+        {% if risk.days_until_rupture <= 0 %}EM RUPTURA
+        {% else %}{{ risk.days_until_rupture }}d{% endif %}
+      </div>
+      <div class="lbl">Até Ruptura</div>
+    </div>
+    {% endif %}
+    {% if risk.rupture_date %}
+    <div class="risk-stat">
+      <div class="val">{{ risk.rupture_date }}</div>
+      <div class="lbl">Data Ruptura</div>
+    </div>
+    {% endif %}
+    {% if risk.send_deadline %}
+    <div class="risk-stat">
+      <div class="val" style="color:var(--orange)">{{ risk.send_deadline }}</div>
+      <div class="lbl">Enviar até</div>
+    </div>
+    {% endif %}
+    {% if risk.past_zero_days > 0 %}
+    <div class="risk-stat">
+      <div class="val" style="color:var(--red)">{{ risk.past_zero_days }}</div>
+      <div class="lbl">Rupturas Históricas</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- KPI grid -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="label">Estoque FULL</div>
+      <div class="value kpi-orange">{{ item.stock }}</div>
+      <div class="sub">unidades disponíveis</div>
+    </div>
+    <div class="kpi-card">
+      <div class="label">Giro 7 dias</div>
+      <div class="value">{{ "%.1f" | format(item.giro_7d) }}</div>
+      <div class="sub">un/dia</div>
+    </div>
+    <div class="kpi-card">
+      <div class="label">Giro 30 dias</div>
+      <div class="value">{{ "%.1f" | format(item.giro_30d) }}</div>
+      <div class="sub">un/dia</div>
+    </div>
+    <div class="kpi-card">
+      <div class="label">Cobertura</div>
+      {% if item.coverage_days %}
+        <div class="value {% if item.coverage_days < 10 %}kpi-red{% elif item.coverage_days < 20 %}kpi-orange{% else %}kpi-green{% endif %}">
+          {{ "%.0f" | format(item.coverage_days) }}d
+        </div>
+      {% else %}
+        <div class="value kpi-green">—</div>
+      {% endif %}
+      <div class="sub">dias de cobertura</div>
+    </div>
+    <div class="kpi-card">
+      <div class="label">Tendência</div>
+      <div class="value {% if item.trend == 'acelerando' %}kpi-green{% elif item.trend == 'esfriando' %}kpi-red{% else %}kpi-orange{% endif %}">
+        {{ item.trend | capitalize }}
+      </div>
+      <div class="sub">vs período anterior</div>
+    </div>
+    <div class="kpi-card">
+      <div class="label">Giro 15 dias</div>
+      <div class="value">{{ "%.1f" | format(item.giro_15d) }}</div>
+      <div class="sub">un/dia</div>
+    </div>
+  </div>
+
+  <!-- Chart 90 days -->
+  <div class="section">
+    <div class="section-title">Histórico 90 Dias — Vendas & Estoque</div>
+    <div class="chart-wrap">
+      <canvas id="prodChart"></canvas>
+    </div>
+  </div>
+
+  <div class="two-col">
+
+    <!-- Left: Induction calculator -->
+    <div class="section">
+      <div class="section-title">Calculadora de Envio</div>
+
+      <div class="slider-row">
+        <label>Ciclo logístico</label>
+        <input type="range" id="cycleSlider" min="5" max="60" value="{{ induction.dias_alvo - 30 if induction.dias_alvo else 20 }}" step="5">
+        <span class="slider-val" id="cycleVal">{{ induction.dias_alvo - 30 if induction.dias_alvo else 20 }}d</span>
+      </div>
+
+      <div class="induction-result">
+        <div class="induction-qty" id="inductQty">{{ induction.qty }}</div>
+        <div class="induction-sub">unidades recomendadas para envio</div>
+        {% if induction.prazo_label %}
+        <div style="margin-top:8px;font-size:13px;color:var(--text)">Prazo: <strong>{{ induction.prazo_label }}</strong></div>
+        {% endif %}
+        {% if induction.state %}
+        <div class="induction-badge
+          {% if induction.state == 'saudável' %}state-saudavel
+          {% elif 'recuperacao' in induction.state %}state-recuperacao
+          {% else %}state-queda{% endif %}">
+          {{ induction.state | replace('_', ' ') | capitalize }}
+        </div>
+        {% endif %}
+        {% if induction.justificativa %}
+        <div style="margin-top:10px;font-size:12px;color:var(--muted);text-align:left">{{ induction.justificativa }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Right: Risk components -->
+    <div class="section">
+      <div class="section-title">Decomposição do Score</div>
+      <div class="component-bars">
+        {% set comps = [
+          ('Cobertura', risk.components.coverage, '#f5a623'),
+          ('Tendência', risk.components.trend|abs, '#26c6da' if risk.components.trend >= 0 else '#888'),
+          ('Histórico', risk.components.history, '#f44336'),
+        ] %}
+        {% for name, val, color in comps %}
+        <div class="comp-row">
+          <span class="comp-label">{{ name }}</span>
+          <div class="comp-bar-wrap">
+            <div class="comp-bar-fill" style="width:{{ [val|abs, 100]|min }}%;background:{{ color }}"></div>
+          </div>
+          <span class="comp-val" style="color:{{ color }}">
+            {% if val > 0 %}+{% endif %}{{ val }}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+        <div style="display:flex;justify-content:space-between;font-size:13px">
+          <span style="color:var(--muted)">Score total</span>
+          <span style="font-weight:700;color:{{ risk.color }}">{{ risk.score }} / 100</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /two-col -->
+
+  <!-- Rupture impact -->
+  <div class="section">
+    <div class="section-title">Impacto de Rupturas (90 dias)</div>
+    <div class="impact-grid">
+      <div class="impact-cell">
+        <div class="val kpi-red">{{ impact.rupture_days }}</div>
+        <div class="lbl">Dias em Ruptura</div>
+      </div>
+      <div class="impact-cell">
+        <div class="val kpi-red">{{ impact.lost_units }}</div>
+        <div class="lbl">Unidades Perdidas</div>
+      </div>
+      <div class="impact-cell">
+        <div class="val kpi-red">R$ {{ "%.0f" | format(impact.lost_revenue) }}</div>
+        <div class="lbl">Receita Perdida</div>
+      </div>
+      <div class="impact-cell">
+        <div class="val">{{ "%.1f" | format(impact.avg_giro) }}</div>
+        <div class="lbl">Giro Médio (un/dia)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="two-col">
+
+    <!-- Margin breakdown -->
+    <div class="section">
+      <div class="section-title">Margem (30 dias)</div>
+      {% if margin_item %}
+      <table class="margin-table">
+        <tr><th>Campo</th><th>Valor</th></tr>
+        <tr><td>Preço de Venda</td><td>{{ margin_item.price | brl }}</td></tr>
+        <tr><td>Custo NF</td><td>{{ margin_item.unit_cost | brl }}</td></tr>
+        <tr><td>Comissão ML</td><td>{{ margin_item.ml_fee | brl }}</td></tr>
+        <tr><td>Frete Est.</td><td>{{ margin_item.shipping | brl }}</td></tr>
+        <tr><td>Imposto</td><td>{{ margin_item.tax | brl }}</td></tr>
+        <tr><td>Lucro Unitário</td>
+          <td style="font-weight:700;color:{% if margin_item.lucro_unit < 0 %}var(--red){% else %}var(--green){% endif %}">
+            {{ margin_item.lucro_unit | brl }}
+          </td>
+        </tr>
+        <tr><td>Margem %</td>
+          <td>
+            {% set mp = margin_item.margem_pct %}
+            <span class="margem-badge {% if mp < 0 %}margem-neg{% elif mp < 10 %}margem-low{% elif mp < 25 %}margem-mid{% else %}margem-good{% endif %}">
+              {{ "%.1f" | format(mp) }}%
+            </span>
+          </td>
+        </tr>
+        <tr><td>Vendas 30d</td><td>{{ margin_item.qty_sold }} un | {{ margin_item.receita | brl }}</td></tr>
+        <tr><td>Lucro Total 30d</td>
+          <td style="font-weight:700;color:{% if margin_item.lucro_total < 0 %}var(--red){% else %}var(--green){% endif %}">
+            {{ margin_item.lucro_total | brl }}
+          </td>
+        </tr>
+      </table>
+      {% else %}
+      <div style="color:var(--muted);text-align:center;padding:30px">
+        <div style="font-size:24px;margin-bottom:8px">💰</div>
+        Sem custo cadastrado.<br>
+        <a href="/custos/{{ seller_id }}" style="color:var(--orange)">Cadastrar custo →</a>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Promotions + Price history -->
+    <div>
+      {% if full.promos %}
+      <div class="section" style="margin-bottom:16px">
+        <div class="section-title">Promoções Ativas</div>
+        {% for p in full.promos %}
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+          <span class="promo-tag">{{ p.promotion_type }}</span>
+          <span>
+            <span style="text-decoration:line-through;color:var(--muted)">{{ p.original_price | brl }}</span>
+            → <strong style="color:var(--teal)">{{ p.promo_price | brl }}</strong>
+          </span>
+          {% set disc = ((p.original_price - p.promo_price) / p.original_price * 100) if p.original_price > 0 else 0 %}
+          <span style="color:var(--purple);font-size:12px;font-weight:700">-{{ "%.0f" | format(disc) }}%</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if full.price_history %}
+      <div class="section">
+        <div class="section-title">Histórico de Preços</div>
+        {% for ph in full.price_history %}
+        <div class="price-hist-row">
+          <span class="ph-date">{{ ph.changed_at[:10] }}</span>
+          <span>
+            <span class="ph-old">{{ ph.old_price | brl }}</span>
+            <span class="ph-arrow"> → </span>
+            <span class="ph-new">{{ ph.new_price | brl }}</span>
+          </span>
+          {% set delta = ph.new_price - ph.old_price %}
+          <span style="color:{% if delta > 0 %}var(--green){% else %}var(--red){% endif %};font-size:12px">
+            {% if delta > 0 %}+{% endif %}{{ delta | num_br }}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="section">
+        <div class="section-title">Histórico de Preços</div>
+        <div style="color:var(--muted);text-align:center;padding:20px">Nenhuma alteração registrada.</div>
+      </div>
+      {% endif %}
+    </div>
+
+  </div><!-- /two-col -->
+
+  <!-- ══ SEÇÃO 7 — ANÁLISE DE CONCORRENTES ═══════════════════════════════════ -->
+  <div class="section" id="sec7">
+    <!-- Header with editable query -->
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+      <div class="section-title" style="margin-bottom:0">Análise de Concorrentes</div>
+      <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:240px">
+        <span style="font-size:11px;color:var(--muted);white-space:nowrap">busca:</span>
+        <input id="compQuery"
+               type="text"
+               value="{{ competitors_query }}"
+               style="flex:1;min-width:160px;max-width:360px;
+                      background:var(--bg3);border:1px solid var(--border);
+                      border-radius:6px;color:var(--text);font-size:12px;
+                      padding:5px 10px;outline:none;"
+               onfocus="this.style.borderColor='var(--orange)'"
+               onblur="this.style.borderColor='var(--border)'"
+               onkeydown="if(event.key==='Enter') reloadCompetitors()">
+        <button onclick="reloadCompetitors()"
+                id="btnReload"
+                style="background:var(--orange);color:#000;font-size:11px;font-weight:700;
+                       padding:5px 12px;border:none;border-radius:6px;cursor:pointer;
+                       white-space:nowrap;transition:opacity .15s"
+                onmouseover="this.style.opacity='.8'"
+                onmouseout="this.style.opacity='1'">
+          Re-buscar
+        </button>
+        <span id="compFallbackNote" style="font-size:11px;color:#ff9800;display:none">
+          ⚠ fallback (sem resultados com query original)
+        </span>
+      </div>
+    </div>
+
+    <!-- Dynamic body — rendered server-side first, replaced by JS on re-search -->
+    <div id="compBody">
+      {% include "_comp_body.html" ignore missing %}
+      {# Inline fallback when _comp_body partial doesn't exist #}
+      {% if market and market.avg_price %}
+        {{- _render_comp_inline(market, item, competitors) | safe if _render_comp_inline is defined else "" }}
+      {% endif %}
+      <!-- Initial server-rendered content -->
+      <div id="compInitial">
+        {% if market and market.avg_price %}
+
+        <!-- Market summary -->
+        <div class="market-summary" id="compSummaryCards">
+          <div class="mkt-card">
+            <div class="lbl">Mínimo mercado</div>
+            <div class="val" style="color:var(--green)">{{ market.min_price | brl }}</div>
+          </div>
+          <div class="mkt-card">
+            <div class="lbl">Média mercado</div>
+            <div class="val" style="color:var(--orange)">{{ market.avg_price | brl }}</div>
+          </div>
+          <div class="mkt-card">
+            <div class="lbl">Máximo mercado</div>
+            <div class="val" style="color:var(--muted)">{{ market.max_price | brl }}</div>
+          </div>
+          <div class="mkt-card">
+            <div class="lbl">Seu preço</div>
+            <div class="val" style="color:var(--text)">{{ item.price | brl }}</div>
+          </div>
+          <div class="mkt-card pos-{{ market.position | replace(' ','') | replace('média','media') }}">
+            <div class="lbl">Posição</div>
+            <div class="val">{% if market.delta_pct > 0 %}+{% endif %}{{ "%.1f" | format(market.delta_pct) }}%</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">{{ market.position }} da média</div>
+          </div>
+        </div>
+
+        <!-- Position bar -->
+        {% if market.max_price > market.min_price %}
+        {% set br = market.max_price - market.min_price %}
+        {% set op = [([(item.price - market.min_price) / br * 100, 0] | max), 100] | min %}
+        {% set ap = [(market.avg_price - market.min_price) / br * 100, 100] | min %}
+        <div id="compBar" style="margin-bottom:18px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Espectro de preços do mercado</div>
+          <div style="position:relative;height:10px;background:linear-gradient(to right,#4caf50,#ffc107,#f44336);border-radius:5px">
+            <div style="position:absolute;top:-4px;left:{{ ap|round }}%;transform:translateX(-50%);width:2px;height:18px;background:#ff9800;border-radius:1px" title="Média"></div>
+            <div style="position:absolute;top:-6px;left:{{ op|round }}%;transform:translateX(-50%);width:12px;height:22px;background:#fff;border-radius:2px;border:2px solid var(--orange)" title="Seu preço"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px">
+            <span>{{ market.min_price | brl }}</span>
+            <span style="color:#ff9800">▲ média</span>
+            <span>{{ market.max_price | brl }}</span>
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Competitors table -->
+        {% if competitors %}
+        <div id="compTableWrap" style="overflow-x:auto;border-radius:8px;border:1px solid var(--border)">
+          <table class="comp-table">
+            <thead><tr>
+              <th style="width:32px">#</th>
+              <th>Título</th><th>Preço</th><th>vs. seu preço</th>
+              <th>Vendas</th><th>Envio</th><th>Reputação</th><th>Catálogo</th>
+            </tr></thead>
+            <tbody>
+              {% for c in competitors %}
+              {% set delta = ((c.price - item.price) / item.price * 100) if item.price > 0 else 0 %}
+              <tr>
+                <td style="color:var(--muted);font-weight:700">{{ loop.index }}</td>
+                <td>
+                  <div class="comp-title">
+                    {% if c.permalink %}<a href="{{ c.permalink }}" target="_blank" rel="noopener">{{ c.title }}</a>
+                    {% else %}{{ c.title }}{% endif %}
+                  </div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:2px">{{ c.seller_nickname }}</div>
+                </td>
+                <td style="font-weight:700;font-size:13px">{{ c.price | brl }}</td>
+                <td>
+                  {% if delta > 5 %}<span class="price-cheaper">{{ "%.1f"|format(delta) }}% mais caro</span>
+                  {% elif delta < -5 %}<span class="price-dearer">{{ "%.1f"|format(delta|abs) }}% mais barato</span>
+                  {% else %}<span class="price-parity">≈ par</span>{% endif %}
+                </td>
+                <td style="color:var(--muted)">{{ c.sold_quantity }}</td>
+                <td>
+                  {% if c.logistic_type == 'fulfillment' %}<span class="comp-tag tag-full">FULL</span>
+                  {% elif c.free_shipping %}<span class="comp-tag tag-normal">Grátis</span>
+                  {% else %}<span class="comp-tag tag-normal">Normal</span>{% endif %}
+                </td>
+                <td>
+                  {% set rep = c.seller_rep %}
+                  {% if '5' in rep %}<span class="rep-5" title="{{ rep }}">★★★★★</span>
+                  {% elif '4' in rep %}<span class="rep-4" title="{{ rep }}">★★★★☆</span>
+                  {% elif '3' in rep %}<span class="rep-3" title="{{ rep }}">★★★☆☆</span>
+                  {% elif '2' in rep %}<span class="rep-2" title="{{ rep }}">★★☆☆☆</span>
+                  {% elif '1' in rep %}<span class="rep-1" title="{{ rep }}">★☆☆☆☆</span>
+                  {% else %}<span class="rep-x">—</span>{% endif %}
+                </td>
+                <td>
+                  {% if c.is_catalog %}<span class="comp-tag tag-catalog">Catálogo</span>
+                  {% else %}<span style="color:#333;font-size:11px">—</span>{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        {% elif competitors is defined and competitors | length == 0 %}
+          <div style="color:var(--muted);text-align:center;padding:28px;font-size:13px">
+            Nenhum concorrente encontrado. Tente editar a busca acima.
+          </div>
+        {% else %}
+          <div style="color:var(--muted);text-align:center;padding:28px;font-size:13px">
+            Análise de concorrentes indisponível.
+          </div>
+        {% endif %}
+      </div><!-- /#compInitial -->
+    </div><!-- /#compBody -->
+
+  </div><!-- /seção 7 -->
+
+</div><!-- /page -->
+
+<script>
+// ── Chart.js: 90-day combined bar + line ─────────────────────────────────────
+(function() {
+  const labels   = {{ chart_labels | tojson }};
+  const orders   = {{ chart_orders | tojson }};
+  const stock    = {{ chart_stock  | tojson }};
+  const ruptures = {{ chart_ruptures | tojson }};
+
+  // Compact labels: show only every 7th date
+  const displayLabels = labels.map((l, i) => i % 7 === 0 ? l.slice(5) : '');
+
+  // Rupture overlay (point markers on bar dataset)
+  const ruptureData = ruptures.map((r, i) => r ? orders[i] : null);
+
+  const ctx = document.getElementById('prodChart').getContext('2d');
+  new Chart(ctx, {
+    data: {
+      labels: displayLabels,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Vendas (un)',
+          data: orders,
+          backgroundColor: 'rgba(245,166,35,0.55)',
+          borderColor: 'rgba(245,166,35,0.9)',
+          borderWidth: 1,
+          yAxisID: 'yOrders',
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: 'Estoque FULL',
+          data: stock,
+          borderColor: '#26c6da',
+          backgroundColor: 'rgba(38,198,218,0.08)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: true,
+          yAxisID: 'yStock',
+          spanGaps: false,
+          order: 1,
+        },
+        {
+          type: 'scatter',
+          label: 'Ruptura',
+          data: ruptureData.map((v, i) => v !== null ? {x: displayLabels[i], y: v} : null).filter(Boolean),
+          backgroundColor: 'rgba(244,67,54,0.9)',
+          pointRadius: 5,
+          yAxisID: 'yOrders',
+          order: 0,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          labels: { color: '#888', font: { size: 11 } }
+        },
+        tooltip: {
+          backgroundColor: '#1a1a1a',
+          borderColor: '#2a2a2a',
+          borderWidth: 1,
+          titleColor: '#e0e0e0',
+          bodyColor: '#aaa',
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#555', maxRotation: 0 },
+          grid:  { color: '#1e1e1e' },
+        },
+        yOrders: {
+          position: 'left',
+          ticks: { color: '#f5a623' },
+          grid:  { color: '#1e1e1e' },
+          title: { display: true, text: 'Vendas', color: '#f5a623', font: { size: 11 } },
+        },
+        yStock: {
+          position: 'right',
+          ticks: { color: '#26c6da' },
+          grid:  { display: false },
+          title: { display: true, text: 'Estoque', color: '#26c6da', font: { size: 11 } },
+        },
+      }
+    }
+  });
+})();
+
+// ── Competitor re-search ──────────────────────────────────────────────────────
+const SELLER_ID = "{{ seller_id }}";
+const ITEM_ID   = "{{ item.id }}";
+const OWN_PRICE = {{ item.price or 0 }};
+
+function reloadCompetitors() {
+  const q     = document.getElementById('compQuery').value.trim();
+  const btn   = document.getElementById('btnReload');
+  const body  = document.getElementById('compBody');
+
+  if (!q) return;
+
+  btn.disabled   = true;
+  btn.textContent = '...';
+  body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Buscando concorrentes…</div>';
+
+  const url = `/produto/${SELLER_ID}/${ITEM_ID}/concorrentes?q=${encodeURIComponent(q)}`;
+
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok) {
+        body.innerHTML = `<div style="color:var(--red);text-align:center;padding:28px">${data.error || 'Erro ao buscar concorrentes.'}</div>`;
+        return;
+      }
+
+      const fallbackNote = document.getElementById('compFallbackNote');
+      if (fallbackNote) fallbackNote.style.display = data.fallback ? 'inline' : 'none';
+
+      const m = data.market || {};
+      const competitors = data.competitors || [];
+
+      if (!m.avg_price) {
+        body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:28px;font-size:13px">Nenhum concorrente encontrado. Tente editar a busca acima.</div>';
+        return;
+      }
+
+      // ── Market summary cards ──────────────────────────────────────────────
+      const posClass = {
+        'acima':    'pos-acima',
+        'abaixo':   'pos-abaixo',
+        'na média': 'pos-media',
+      }[m.position] || '';
+
+      const deltaSign = m.delta_pct > 0 ? '+' : '';
+      const summaryHtml = `
+        <div class="market-summary">
+          <div class="mkt-card">
+            <div class="lbl">Mínimo mercado</div>
+            <div class="val" style="color:var(--green)">R$ ${fmt(m.min_price)}</div>
+          </div>
+          <div class="mkt-card">
+            <div class="lbl">Média mercado</div>
+            <div class="val" style="color:var(--orange)">R$ ${fmt(m.avg_price)}</div>
+          </div>
+          <div class="mkt-card">
+            <div class="lbl">Máximo mercado</div>
+            <div class="val" style="color:var(--muted)">R$ ${fmt(m.max_price)}</div>
+          </div>
+          <div class="mkt-card">
+            <div class="lbl">Seu preço</div>
+            <div class="val" style="color:var(--text)">R$ ${fmt(data.own_price)}</div>
+          </div>
+          <div class="mkt-card ${posClass}">
+            <div class="lbl">Posição</div>
+            <div class="val">${deltaSign}${m.delta_pct.toFixed(1)}%</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">${m.position} da média</div>
+          </div>
+        </div>`;
+
+      // ── Position bar ─────────────────────────────────────────────────────
+      let barHtml = '';
+      const br = m.max_price - m.min_price;
+      if (br > 0) {
+        const ap = Math.min(Math.max((m.avg_price - m.min_price) / br * 100, 0), 100);
+        const op = Math.min(Math.max((data.own_price - m.min_price) / br * 100, 0), 100);
+        barHtml = `
+          <div style="margin-bottom:18px">
+            <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Espectro de preços do mercado</div>
+            <div style="position:relative;height:10px;background:linear-gradient(to right,#4caf50,#ffc107,#f44336);border-radius:5px">
+              <div style="position:absolute;top:-4px;left:${ap.toFixed(0)}%;transform:translateX(-50%);width:2px;height:18px;background:#ff9800;border-radius:1px" title="Média"></div>
+              <div style="position:absolute;top:-6px;left:${op.toFixed(0)}%;transform:translateX(-50%);width:12px;height:22px;background:#fff;border-radius:2px;border:2px solid var(--orange)" title="Seu preço"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px">
+              <span>R$ ${fmt(m.min_price)}</span>
+              <span style="color:#ff9800">▲ média</span>
+              <span>R$ ${fmt(m.max_price)}</span>
+            </div>
+          </div>`;
+      }
+
+      // ── Competitors table ─────────────────────────────────────────────────
+      let tableHtml = '';
+      if (competitors.length > 0) {
+        const rows = competitors.map((c, i) => {
+          const price = c.price || 0;
+          const delta = data.own_price > 0 ? (price - data.own_price) / data.own_price * 100 : 0;
+          const deltaEl = delta > 5
+            ? `<span class="price-cheaper">${delta.toFixed(1)}% mais caro</span>`
+            : delta < -5
+              ? `<span class="price-dearer">${Math.abs(delta).toFixed(1)}% mais barato</span>`
+              : `<span class="price-parity">≈ par</span>`;
+
+          const repNum = (c.seller_rep || '').replace(/\D/g, '').charAt(0) || '';
+          const stars  = {'5':'★★★★★','4':'★★★★☆','3':'★★★☆☆','2':'★★☆☆☆','1':'★☆☆☆☆'}[repNum] || '—';
+          const repClass = repNum ? `rep-${repNum}` : 'rep-x';
+
+          const shipEl = c.logistic_type === 'fulfillment'
+            ? '<span class="comp-tag tag-full">FULL</span>'
+            : c.free_shipping
+              ? '<span class="comp-tag tag-normal">Grátis</span>'
+              : '<span class="comp-tag tag-normal">Normal</span>';
+
+          const catEl = c.is_catalog ? '<span class="comp-tag tag-catalog">Catálogo</span>' : '<span style="color:#333;font-size:11px">—</span>';
+
+          const titleEl = c.permalink
+            ? `<a href="${c.permalink}" target="_blank" rel="noopener">${escHtml(c.title)}</a>`
+            : escHtml(c.title);
+
+          return `<tr>
+            <td style="color:var(--muted);font-weight:700">${i + 1}</td>
+            <td>
+              <div class="comp-title">${titleEl}</div>
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">${escHtml(c.seller_nickname || '')}</div>
+            </td>
+            <td style="font-weight:700;font-size:13px">R$ ${fmt(price)}</td>
+            <td>${deltaEl}</td>
+            <td style="color:var(--muted)">${c.sold_quantity || 0}</td>
+            <td>${shipEl}</td>
+            <td><span class="${repClass}" title="${escHtml(c.seller_rep || '')}">${stars}</span></td>
+            <td>${catEl}</td>
+          </tr>`;
+        }).join('');
+
+        tableHtml = `
+          <div style="overflow-x:auto;border-radius:8px;border:1px solid var(--border)">
+            <table class="comp-table">
+              <thead><tr>
+                <th style="width:32px">#</th>
+                <th>Título</th><th>Preço</th><th>vs. seu preço</th>
+                <th>Vendas</th><th>Envio</th><th>Reputação</th><th>Catálogo</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`;
+      }
+
+      body.innerHTML = summaryHtml + barHtml + tableHtml;
+    })
+    .catch(err => {
+      body.innerHTML = `<div style="color:var(--red);text-align:center;padding:28px">Erro de rede: ${escHtml(String(err))}</div>`;
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = 'Re-buscar';
+    });
+}
+
+function fmt(n) {
+  return (n == null ? '—' : Number(n).toFixed(2).replace('.', ','));
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Induction slider ──────────────────────────────────────────────────────────
+(function() {
+  const giro7d   = {{ item.giro_7d }};
+  const giro30d  = {{ item.giro_30d }};
+  const stock    = {{ item.stock }};
+  const trend    = "{{ item.trend }}";
+
+  const slider   = document.getElementById('cycleSlider');
+  const cycleVal = document.getElementById('cycleVal');
+  const qtyEl    = document.getElementById('inductQty');
+
+  function calcQty(cycleDays) {
+    // Match Python logic: dias_alvo = 30 + cycle_days
+    const diasAlvo = 30 + cycleDays;
+
+    // State detection
+    let giroBase;
+    const ratio = giro30d > 0 ? giro7d / giro30d : 1;
+    const state = ratio >= 0.7 ? 'saudável'
+                : (stock === 0 && giro7d < giro30d * 0.5) ? 'em_recuperacao'
+                : 'queda_real';
+
+    if (state === 'em_recuperacao') giroBase = Math.max(giro30d, giro7d);
+    else if (state === 'queda_real') giroBase = giro30d;
+    else giroBase = giro7d;
+
+    const trendFactor = trend === 'acelerando' ? 1.15
+                      : trend === 'esfriando'  ? 0.85 : 1.0;
+
+    const qty = Math.max(0, Math.round(giroBase * diasAlvo * 1.2 * trendFactor - stock));
+    return qty;
+  }
+
+  if (slider) {
+    slider.addEventListener('input', function() {
+      const c = parseInt(this.value);
+      cycleVal.textContent = c + 'd';
+      qtyEl.textContent = calcQty(c);
+    });
+  }
+})();
+</script>
+
+</body>
+</html>

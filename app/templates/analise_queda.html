@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Análise de Queda — {{ account.name }} — AEGIS</title>
+  <style>
+    :root {
+      --bg: #0d0d0d; --bg2: #111; --bg3: #181818; --bg4: #1e1e1e;
+      --orange: #f5a623; --green: #4caf50; --red: #f44336;
+      --teal: #26c6da; --yellow: #ffd54f; --blue: #64b5f6; --purple: #ab47bc;
+      --text: #e0e0e0; --muted: #666; --border: #242424;
+      --card-bg: #141414;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; font-size: 14px; }
+
+    .nav { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 12px 24px;
+           display: flex; align-items: center; gap: 20px; position: sticky; top: 0; z-index: 100; }
+    .nav-brand { color: var(--orange); font-weight: 700; font-size: 18px; text-decoration: none; }
+    .nav a { color: var(--muted); text-decoration: none; font-size: 13px; }
+    .nav a:hover { color: var(--text); }
+    .nav-right { margin-left: auto; display: flex; gap: 10px; }
+    .btn-sm { padding: 5px 13px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px;
+              font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    .btn-ghost:hover { color: var(--text); border-color: #444; }
+
+    .page { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+    /* Period tabs */
+    .period-tabs { display: flex; gap: 6px; margin-bottom: 24px; align-items: center; }
+    .period-tabs .lbl { font-size: 11px; color: var(--muted); margin-right: 4px; }
+    .tab { padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border);
+           color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 600;
+           text-decoration: none; transition: all .15s; }
+    .tab:hover { color: var(--text); border-color: #444; }
+    .tab.active { background: var(--orange); color: #000; border-color: var(--orange); }
+
+    /* Summary banner */
+    .summary-banner {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 10px; padding: 20px 24px; margin-bottom: 24px;
+    }
+    .summary-title {
+      font-size: 13px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 16px;
+    }
+    .summary-delta {
+      font-size: 28px; font-weight: 700; letter-spacing: -0.5px;
+    }
+    .summary-delta.negative { color: var(--red); }
+    .summary-delta.positive { color: var(--green); }
+    .summary-sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+    /* Cause cards */
+    .cause-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 16px; }
+    .cause-card { background: var(--bg3); border-radius: 8px; padding: 14px 16px; border: 1px solid var(--border); }
+    .cause-card.ruptura   { border-color: rgba(244,67,54,.4);  }
+    .cause-card.queda     { border-color: rgba(255,152,0,.4);  }
+    .cause-card.pausado   { border-color: rgba(255,213,79,.4); }
+    .cause-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
+    .cause-val { font-size: 20px; font-weight: 700; }
+    .ruptura .cause-val   { color: var(--red); }
+    .queda   .cause-val   { color: #ff9800; }
+    .pausado .cause-val   { color: var(--yellow); }
+    .cause-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* Section */
+    .section { background: var(--card-bg); border: 1px solid var(--border);
+               border-radius: 10px; padding: 20px 24px; margin-bottom: 20px; }
+    .section-title { font-size: 13px; font-weight: 700; color: var(--muted);
+                     text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 16px; }
+
+    /* Table */
+    .tbl-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); margin-top: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead tr { background: var(--bg4); }
+    th { padding: 9px 12px; text-align: left; font-size: 11px; font-weight: 600;
+         color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
+         border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th.num { text-align: right; }
+    td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+
+    .cause-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 700; padding: 3px 9px;
+      border-radius: 10px; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap;
+    }
+    .badge-ruptura     { background: rgba(244,67,54,.12);  color: var(--red);    border: 1px solid rgba(244,67,54,.3); }
+    .badge-queda       { background: rgba(255,152,0,.12);  color: #ff9800;        border: 1px solid rgba(255,152,0,.3); }
+    .badge-pausado     { background: rgba(255,213,79,.1);  color: var(--yellow); border: 1px solid rgba(255,213,79,.3); }
+    .badge-crescimento { background: rgba(76,175,80,.1);   color: var(--green);  border: 1px solid rgba(76,175,80,.3); }
+
+    .delta-neg { color: var(--red); font-weight: 700; }
+    .delta-pos { color: var(--green); font-weight: 700; }
+
+    .empty { text-align: center; padding: 32px; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<nav class="nav">
+  <a class="nav-brand" href="/">AEGIS</a>
+  <span style="color:var(--border)">|</span>
+  <a href="/dashboard?account={{ account.name }}">{{ account.name }}</a>
+  <span style="color:var(--border)">›</span>
+  <span style="color:var(--text);font-weight:600">Análise de Queda</span>
+  <div class="nav-right">
+    <a href="/dashboard?account={{ account.name }}" class="btn-sm btn-ghost">← Dashboard</a>
+  </div>
+</nav>
+
+<div class="page">
+
+  <!-- Period tabs -->
+  <div class="period-tabs">
+    <span class="lbl">Comparar períodos:</span>
+    {% for d in [7, 15, 30, 60, 90] %}
+    <a href="/analise-queda/{{ seller_id }}?days={{ d }}"
+       class="tab {% if days == d %}active{% endif %}">{{ d }}d</a>
+    {% endfor %}
+    <span style="font-size:11px;color:var(--muted);margin-left:8px">
+      Compara últimos {{ days }}d vs {{ days }}d anteriores
+    </span>
+  </div>
+
+  <!-- Summary banner -->
+  <div class="summary-banner">
+    <div class="summary-title">Resumo de Performance — {{ days }}d vs {{ days }}d anteriores</div>
+
+    {% set delta = data.total_delta %}
+    <div class="summary-delta {% if delta < 0 %}negative{% else %}positive{% endif %}">
+      {% if delta >= 0 %}+{% endif %}{{ delta | brl }}
+    </div>
+    <div class="summary-sub">
+      Período atual: {{ data.total_revenue_current | brl }} ·
+      Período anterior: {{ data.total_revenue_prev | brl }}
+    </div>
+
+    {% if delta < 0 and data.by_cause %}
+    <div style="margin-top:16px;font-size:13px;color:var(--text)">
+      Você vendeu <strong style="color:var(--red)">{{ (delta | abs) | brl }}</strong> a menos que o período anterior.
+      Os principais responsáveis foram:
+    </div>
+
+    <div class="cause-grid">
+      {% if 'RUPTURA' in data.by_cause %}
+      {% set r = data.by_cause['RUPTURA'] %}
+      <div class="cause-card ruptura">
+        <div class="cause-lbl">Ruptura de Estoque</div>
+        <div class="cause-val">{{ (r.total_impact | abs) | brl }}</div>
+        <div class="cause-sub">{{ r.products | length }} produto(s) sem estoque no período</div>
+      </div>
+      {% endif %}
+
+      {% if 'QUEDA_PERFORMANCE' in data.by_cause %}
+      {% set q = data.by_cause['QUEDA_PERFORMANCE'] %}
+      <div class="cause-card queda">
+        <div class="cause-lbl">Queda de Performance</div>
+        <div class="cause-val">{{ (q.total_impact | abs) | brl }}</div>
+        <div class="cause-sub">{{ q.products | length }} produto(s) com estoque mas vendendo menos</div>
+      </div>
+      {% endif %}
+
+      {% if 'PAUSADO' in data.by_cause %}
+      {% set p = data.by_cause['PAUSADO'] %}
+      <div class="cause-card pausado">
+        <div class="cause-lbl">Anúncios Pausados</div>
+        <div class="cause-val">{{ (p.total_impact | abs) | brl }}</div>
+        <div class="cause-sub">{{ p.products | length }} produto(s) pausado(s)</div>
+      </div>
+      {% endif %}
+    </div>
+    {% elif delta >= 0 %}
+    <div style="margin-top:12px;font-size:13px;color:var(--green)">
+      Performance igual ou melhor que o período anterior.
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Produtos que caíram -->
+  {% if drops %}
+  <div class="section">
+    <div class="section-title">Produtos com Queda ({{ drops | length }})</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Produto</th>
+          <th class="num">Atual ({{ days }}d)</th>
+          <th class="num">Anterior ({{ days }}d)</th>
+          <th class="num">Δ Receita</th>
+          <th class="num">Δ%</th>
+          <th class="num">Estoque</th>
+          <th>Causa</th>
+        </tr></thead>
+        <tbody>
+          {% for item in drops %}
+          <tr>
+            <td>
+              <a href="/produto/{{ seller_id }}/{{ item.item_id }}"
+                 style="color:var(--text);text-decoration:none;font-size:12px">
+                {{ item.title[:55] }}{% if item.title|length > 55 %}…{% endif %}
+              </a>
+              <div style="font-size:10px;color:var(--muted);font-family:monospace">{{ item.item_id }}</div>
+            </td>
+            <td class="num">
+              {{ item.revenue_current | brl }}<br>
+              <span style="font-size:10px;color:var(--muted)">{{ item.qty_current }} un</span>
+            </td>
+            <td class="num" style="color:var(--muted)">
+              {{ item.revenue_prev | brl }}<br>
+              <span style="font-size:10px;color:var(--muted)">{{ item.qty_prev }} un</span>
+            </td>
+            <td class="num delta-neg">{{ item.revenue_delta | brl }}</td>
+            <td class="num">
+              {% if item.revenue_delta_pct is not none %}
+              <span class="delta-neg">▼ {{ (item.revenue_delta_pct | abs) }}%</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="num" style="{% if item.stock_current == 0 %}color:var(--red){% else %}color:var(--muted){% endif %}">
+              {{ item.stock_current }}
+            </td>
+            <td>
+              {% if item.cause == 'RUPTURA' %}
+                <span class="cause-badge badge-ruptura">Ruptura</span>
+              {% elif item.cause == 'QUEDA_PERFORMANCE' %}
+                <span class="cause-badge badge-queda">Queda Performance</span>
+              {% elif item.cause == 'PAUSADO' %}
+                <span class="cause-badge badge-pausado">Pausado</span>
+              {% else %}
+                <span style="color:var(--muted);font-size:11px">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Produtos em crescimento -->
+  {% if growth %}
+  <div class="section">
+    <div class="section-title">Produtos em Crescimento ({{ growth | length }})</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Produto</th>
+          <th class="num">Atual ({{ days }}d)</th>
+          <th class="num">Anterior ({{ days }}d)</th>
+          <th class="num">Δ Receita</th>
+          <th class="num">Δ%</th>
+        </tr></thead>
+        <tbody>
+          {% for item in growth %}
+          <tr>
+            <td>
+              <a href="/produto/{{ seller_id }}/{{ item.item_id }}"
+                 style="color:var(--text);text-decoration:none;font-size:12px">
+                {{ item.title[:55] }}{% if item.title|length > 55 %}…{% endif %}
+              </a>
+            </td>
+            <td class="num">{{ item.revenue_current | brl }}</td>
+            <td class="num" style="color:var(--muted)">{{ item.revenue_prev | brl }}</td>
+            <td class="num delta-pos">+{{ item.revenue_delta | brl }}</td>
+            <td class="num">
+              {% if item.revenue_delta_pct is not none %}
+              <span class="delta-pos">▲ {{ item.revenue_delta_pct }}%</span>
+              {% else %}<span class="delta-pos">novo</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not drops and not growth %}
+  <div class="section">
+    <div class="empty">Sem dados suficientes para comparação no período selecionado.</div>
+  </div>
+  {% endif %}
+
+</div><!-- /page -->
+
+</body>
+</html>

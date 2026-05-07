@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AEGIS — Apuração · {{ account.name }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d0d0d;
+      --surface: #111111;
+      --surface2:#161616;
+      --border:  #1e1e1e;
+      --border2: #2a2a2a;
+      --text:    #e0e0e0;
+      --muted:   #555555;
+      --orange:  #f5a623;
+      --green:   #4caf50;
+      --red:     #f44336;
+      --yellow:  #ffd54f;
+      --blue:    #64b5f6;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg); color: var(--text); min-height: 100vh;
+    }
+
+    header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0 40px; height: 56px;
+      display: flex; align-items: center; gap: 20px;
+      position: sticky; top: 0; z-index: 200;
+    }
+    .logo {
+      font-size: 18px; font-weight: 700; letter-spacing: 4px;
+      color: #fff; text-decoration: none; white-space: nowrap;
+    }
+    .logo span { color: var(--orange); }
+    .header-title {
+      font-size: 12px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 2px;
+    }
+    .header-actions { display: flex; gap: 8px; margin-left: auto; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 600; padding: 7px 14px;
+      border-radius: 6px; border: none; cursor: pointer;
+      text-decoration: none; transition: opacity .15s; white-space: nowrap;
+    }
+    .btn:hover { opacity: .8; }
+    .btn-ghost { background: #1a1a1a; color: #777; border: 1px solid var(--border2); }
+
+    main { padding: 28px 40px 60px; }
+
+    .flashes { padding: 12px 40px 0; display: flex; flex-direction: column; gap: 8px; }
+    .flash { padding: 10px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; }
+    .flash.success { background: #1a3a1a; border: 1px solid var(--green); color: #81c784; }
+    .flash.error   { background: #3a1212; border: 1px solid var(--red);   color: #ef9a9a; }
+    .flash.info    { background: #1a2030; border: 1px solid var(--blue);  color: #90caf9; }
+
+    /* ── PERIOD TOGGLE ────────────────────────────────────────────────────── */
+    .period-row {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 24px;
+    }
+    .period-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--muted);
+    }
+    .period-toggle { display: flex; }
+    .period-btn {
+      font-size: 12px; font-weight: 600; padding: 7px 16px;
+      background: #1a1a1a; border: 1px solid var(--border2); color: #555;
+      cursor: pointer; transition: background .15s, color .15s; text-decoration: none;
+      white-space: nowrap;
+    }
+    .period-btn:first-child { border-radius: 6px 0 0 6px; }
+    .period-btn:last-child  { border-radius: 0 6px 6px 0; border-left: none; }
+    .period-btn + .period-btn { border-left: none; }
+    .period-btn.active { background: #252525; color: var(--orange); border-color: #3a3a3a; }
+
+    .custom-period { display: flex; align-items: center; gap: 8px; margin-left: 10px; }
+    .custom-period input[type=number] {
+      background: #1a1a1a; border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 12px;
+      padding: 6px 8px; width: 70px; outline: none; text-align: center;
+    }
+    .custom-period label { font-size: 11px; color: #444; }
+    .custom-period button {
+      font-size: 11px; font-weight: 600; padding: 6px 12px;
+      border-radius: 6px; border: 1px solid var(--border2);
+      background: #1a1a1a; color: #666; cursor: pointer;
+    }
+    .custom-period button:hover { color: var(--orange); }
+
+    /* ── SEM CUSTO BANNER ─────────────────────────────────────────────────── */
+    .sem-custo-banner {
+      background: #1a1a08; border: 1px solid #3a3a10;
+      border-radius: 8px; padding: 12px 18px;
+      font-size: 12px; color: #aaa;
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 20px;
+    }
+    .sem-custo-banner a { color: var(--yellow); }
+
+    /* ── TOTALS BAR ───────────────────────────────────────────────────────── */
+    .totals-grid {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    .total-cell {
+      background: var(--surface);
+      padding: 16px 18px;
+    }
+    .total-cell-label {
+      font-size: 9px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--muted); margin-bottom: 8px;
+    }
+    .total-cell-val {
+      font-size: 18px; font-weight: 700; color: #fff;
+      letter-spacing: -0.5px; line-height: 1;
+    }
+    .total-cell-val.neg { color: var(--red); }
+    .total-cell-val.pos { color: var(--green); }
+    .total-cell-val.warn { color: var(--yellow); }
+    .total-cell-val.muted { color: #666; }
+
+    .total-cell-sub {
+      font-size: 10px; color: #333; margin-top: 5px;
+    }
+
+    /* ── TABLE ────────────────────────────────────────────────────────────── */
+    .toolbar {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+    }
+    .toolbar-title {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--muted);
+    }
+    input.search {
+      background: #1a1a1a; border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 12px;
+      padding: 6px 10px; width: 220px; outline: none;
+    }
+    input.search:focus { border-color: #444; }
+    .result-count { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+    .table-wrap {
+      border-radius: 10px; border: 1px solid var(--border); overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead { background: var(--surface2); }
+    thead tr { border-bottom: 1px solid #222; }
+    th {
+      padding: 10px 14px; text-align: left;
+      font-size: 10px; font-weight: 700;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+      white-space: nowrap;
+    }
+    th.num, td.num { text-align: right; }
+    td { padding: 9px 14px; border-bottom: 1px solid var(--border); }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #121212; }
+
+    .td-title {
+      font-size: 12px; color: #ccc;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      max-width: 280px;
+    }
+    .td-id { font-size: 10px; color: #2a2a2a; font-family: monospace; }
+
+    .val-muted { color: #444; }
+    .val-neg   { color: var(--red); font-weight: 600; }
+    .val-pos   { color: var(--green); }
+    .val-warn  { color: var(--yellow); }
+
+    .margem-badge {
+      display: inline-block; padding: 3px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 700; white-space: nowrap;
+    }
+    .m-neg  { background: rgba(244,67,54,.12);   color: var(--red); }
+    .m-low  { background: rgba(255,213,79,.10);  color: var(--yellow); }
+    .m-mid  { background: rgba(100,181,246,.10); color: var(--blue); }
+    .m-good { background: rgba(76,175,80,.10);   color: var(--green); }
+    .m-none { background: #161616;               color: #333; }
+
+    .no-cost-row td { opacity: .4; }
+
+    footer {
+      text-align: center; font-size: 11px; color: #222;
+      padding: 20px; border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="{{ url_for('web.index') }}" class="logo">AE<span>G</span>IS</a>
+  <span class="header-title">Apuração · {{ account.name }}</span>
+  <div class="header-actions">
+    <a href="{{ url_for('web.dashboard', account=account.name) }}" class="btn btn-ghost">← Dashboard</a>
+    <a href="{{ url_for('costs.custos', seller_id=seller_id) }}"   class="btn btn-ghost">Gerenciar Custos</a>
+  </div>
+</header>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div class="flashes">
+    {% for cat, msg in messages %}
+    <div class="flash {{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endwith %}
+
+<main>
+
+  <!-- ── PERIOD TOGGLE ──────────────────────────────────────────────────────── -->
+  <div class="period-row">
+    <span class="period-label">Período</span>
+    <div class="period-toggle">
+      <a class="period-btn {{ 'active' if days == 7 }}"
+         href="{{ url_for('costs.apuracao', seller_id=seller_id, days=7) }}">7d</a>
+      <a class="period-btn {{ 'active' if days == 15 }}"
+         href="{{ url_for('costs.apuracao', seller_id=seller_id, days=15) }}">15d</a>
+      <a class="period-btn {{ 'active' if days == 30 }}"
+         href="{{ url_for('costs.apuracao', seller_id=seller_id, days=30) }}">30d</a>
+      <a class="period-btn {{ 'active' if days == 60 }}"
+         href="{{ url_for('costs.apuracao', seller_id=seller_id, days=60) }}">60d</a>
+      <a class="period-btn {{ 'active' if days == 90 }}"
+         href="{{ url_for('costs.apuracao', seller_id=seller_id, days=90) }}">90d</a>
+    </div>
+    <form method="GET" class="custom-period">
+      <input type="hidden" name="seller_id" value="{{ seller_id }}">
+      <label>Personalizado:</label>
+      <input type="number" name="days" min="1" max="365" value="{{ days }}" placeholder="dias">
+      <button type="submit">Aplicar</button>
+    </form>
+  </div>
+
+  {% if margin.sem_custo > 0 %}
+  <div class="sem-custo-banner">
+    ⚠ {{ margin.sem_custo }} produto(s) sem custo cadastrado — excluídos dos totais.
+    <a href="{{ url_for('costs.custos', seller_id=seller_id) }}">Cadastrar custos →</a>
+  </div>
+  {% endif %}
+
+  <!-- ── TOTAIS ──────────────────────────────────────────────────────────────── -->
+  {% set t = margin.totals %}
+  <div class="totals-grid">
+
+    <div class="total-cell">
+      <div class="total-cell-label">Receita Bruta</div>
+      <div class="total-cell-val">{{ t.receita_bruta | brl }}</div>
+      <div class="total-cell-sub">últimos {{ days }}d</div>
+    </div>
+
+    <div class="total-cell">
+      <div class="total-cell-label">Comissão ML</div>
+      <div class="total-cell-val muted">– {{ t.comissao_ml | brl }}</div>
+      <div class="total-cell-sub">&nbsp;</div>
+    </div>
+
+    <div class="total-cell">
+      <div class="total-cell-label">Frete</div>
+      <div class="total-cell-val muted">– {{ t.frete | brl }}</div>
+      <div class="total-cell-sub">&nbsp;</div>
+    </div>
+
+    <div class="total-cell">
+      <div class="total-cell-label">Receita Líquida</div>
+      <div class="total-cell-val">{{ t.receita_liquida | brl }}</div>
+      <div class="total-cell-sub">&nbsp;</div>
+    </div>
+
+    <div class="total-cell">
+      <div class="total-cell-label">Custo NF</div>
+      <div class="total-cell-val muted">– {{ t.custo_nf | brl }}</div>
+      <div class="total-cell-sub">&nbsp;</div>
+    </div>
+
+    <div class="total-cell">
+      <div class="total-cell-label">Imposto</div>
+      <div class="total-cell-val muted">– {{ t.imposto | brl }}</div>
+      <div class="total-cell-sub">&nbsp;</div>
+    </div>
+
+    <div class="total-cell">
+      <div class="total-cell-label">Lucro Líquido</div>
+      {% if t.lucro < 0 %}
+        <div class="total-cell-val neg">{{ t.lucro | brl }}</div>
+      {% elif t.lucro > 0 %}
+        <div class="total-cell-val pos">{{ t.lucro | brl }}</div>
+      {% else %}
+        <div class="total-cell-val muted">R$ 0,00</div>
+      {% endif %}
+      <div class="total-cell-sub">
+        {% if margin.negativas > 0 %}
+          <span style="color:var(--red)">{{ margin.negativas }} negativas</span>
+        {% endif %}
+        {% if margin.abaixo_10 > 0 %}
+          &nbsp;· <span style="color:var(--yellow)">{{ margin.abaixo_10 }} &lt; 10%</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="total-cell">
+      <div class="total-cell-label">Margem %</div>
+      {% if t.margem_pct is none %}
+        <div class="total-cell-val muted">—</div>
+      {% elif t.margem_pct < 0 %}
+        <div class="total-cell-val neg">{{ t.margem_pct }}%</div>
+      {% elif t.margem_pct < 10 %}
+        <div class="total-cell-val warn">{{ t.margem_pct }}%</div>
+      {% elif t.margem_pct < 20 %}
+        <div class="total-cell-val" style="color:var(--blue)">{{ t.margem_pct }}%</div>
+      {% else %}
+        <div class="total-cell-val pos">{{ t.margem_pct }}%</div>
+      {% endif %}
+      <div class="total-cell-sub">sobre receita bruta</div>
+    </div>
+
+  </div>
+
+  <!-- ── TABELA POR PRODUTO ──────────────────────────────────────────────────── -->
+  <div class="toolbar">
+    <span class="toolbar-title">Breakdown por produto</span>
+    <input class="search" id="searchInput" type="text" placeholder="Buscar produto…"
+           oninput="filterTable(this.value)">
+    <span class="result-count" id="resultCount">{{ margin.breakdown|length }} itens</span>
+  </div>
+
+  <div class="table-wrap">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th>Produto</th>
+          <th class="num">Qtd</th>
+          <th class="num">Rec. Bruta</th>
+          <th class="num">Comis. ML</th>
+          <th class="num">Frete</th>
+          <th class="num">Rec. Líquida</th>
+          <th class="num">Custo NF</th>
+          <th class="num">Imposto</th>
+          <th class="num">Lucro</th>
+          <th class="num">Margem</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in margin.breakdown %}
+        <tr class="{{ '' if item.has_cost else 'no-cost-row' }}"
+            data-title="{{ item.title|lower }}">
+
+          <td>
+            <div class="td-title" title="{{ item.title }}">
+              {% if not item.has_cost %}
+                <span style="color:#333;font-size:10px" title="Sem custo cadastrado">⊘ </span>
+              {% endif %}
+              {{ item.title }}
+            </div>
+            <div class="td-id">{{ item.id }}</div>
+          </td>
+
+          <td class="num val-muted">{{ item.qty }}</td>
+
+          <td class="num">{{ item.receita_bruta | brl }}</td>
+
+          <td class="num val-muted">
+            – {{ item.comissao_ml | num_br }}
+            <div style="font-size:9px;color:#2a2a2a">{{ item.ml_fee_pct }}%</div>
+          </td>
+
+          <td class="num val-muted">
+            {% if item.frete > 0 %}– {{ item.frete | num_br }}{% else %}—{% endif %}
+          </td>
+
+          <td class="num">{{ item.receita_liquida | brl }}</td>
+
+          <td class="num val-muted">
+            {% if item.has_cost %}
+              – {{ item.custo_nf | num_br }}
+            {% else %}
+              <span style="color:#2a2a2a">sem custo</span>
+            {% endif %}
+          </td>
+
+          <td class="num val-muted">
+            {% if item.has_cost and item.imposto > 0 %}
+              – {{ item.imposto | num_br }}
+              <div style="font-size:9px;color:#2a2a2a">{{ item.tax_pct }}%</div>
+            {% else %}—{% endif %}
+          </td>
+
+          <td class="num">
+            {% if not item.has_cost %}
+              <span class="val-muted">—</span>
+            {% elif item.lucro < 0 %}
+              <span class="val-neg">{{ item.lucro | brl }}</span>
+            {% else %}
+              <span class="val-pos">{{ item.lucro | brl }}</span>
+            {% endif %}
+          </td>
+
+          <td class="num">
+            {% if item.margem_pct is none %}
+              <span class="margem-badge m-none">—</span>
+            {% elif item.margem_pct < 0 %}
+              <span class="margem-badge m-neg">{{ item.margem_pct }}%</span>
+            {% elif item.margem_pct < 10 %}
+              <span class="margem-badge m-low">{{ item.margem_pct }}%</span>
+            {% elif item.margem_pct < 20 %}
+              <span class="margem-badge m-mid">{{ item.margem_pct }}%</span>
+            {% else %}
+              <span class="margem-badge m-good">{{ item.margem_pct }}%</span>
+            {% endif %}
+          </td>
+
+        </tr>
+        {% else %}
+        <tr><td colspan="10" style="text-align:center;color:#333;padding:24px">
+          Nenhuma venda no período. Rode a coleta e verifique os dados.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<footer>AEGIS · {{ account.name }} · {{ account.seller_id }}</footer>
+
+<script>
+function filterTable(val) {
+  const q = val.toLowerCase();
+  const rows = document.querySelectorAll('#tbl tbody tr[data-title]');
+  let visible = 0;
+  rows.forEach(r => {
+    const show = r.dataset.title.includes(q);
+    r.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('resultCount').textContent = visible + ' itens';
+}
+</script>
+</body>
+</html>
