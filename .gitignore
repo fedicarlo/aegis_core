@@ -6,6 +6,7 @@ __pycache__/
 .DS_Store
 *.db
 *.sqlite
+*.log
 node_modules/
 playwright/
 

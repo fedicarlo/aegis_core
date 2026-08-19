@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AEGIS — Conciliação NF-e · {{ account.name }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d0d0d; --surface: #111111; --surface2: #161616; --surface3: #1a1a1a;
+      --border: #1e1e1e; --border2: #2a2a2a;
+      --text: #e0e0e0; --muted: #555555;
+      --orange: #f5a623; --green: #4caf50; --red: #f44336;
+      --yellow: #ffd54f; --blue: #64b5f6;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0 32px; height: 52px;
+      display: flex; align-items: center; gap: 16px;
+      position: sticky; top: 0; z-index: 300;
+    }
+    .logo { font-size: 17px; font-weight: 700; letter-spacing: 4px; color: #fff; text-decoration: none; }
+    .logo span { color: var(--orange); }
+    .header-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; }
+    .header-actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 12px; font-weight: 600; padding: 6px 13px;
+      border-radius: 6px; border: none; cursor: pointer;
+      text-decoration: none; transition: opacity .15s; white-space: nowrap;
+    }
+    .btn:hover { opacity: .8; }
+    .btn-primary { background: var(--orange); color: #000; }
+    .btn-ghost   { background: var(--surface3); color: #777; border: 1px solid var(--border2); }
+
+    main { padding: 24px 32px 60px; }
+
+    .flashes { padding: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
+    .flash { padding: 10px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; }
+    .flash.success { background: #1a3a1a; border: 1px solid var(--green); color: #81c784; }
+    .flash.error   { background: #3a1212; border: 1px solid var(--red);   color: #ef9a9a; }
+
+    .hint { font-size: 12px; color: var(--muted); margin-bottom: 18px; line-height: 1.5; max-width: 640px; }
+
+    .table-wrap { border-radius: 10px; border: 1px solid var(--border); overflow: hidden; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead { background: var(--surface2); }
+    thead tr { border-bottom: 1px solid #222; }
+    th {
+      padding: 9px 12px; text-align: left;
+      font-size: 10px; font-weight: 700;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+      white-space: nowrap;
+    }
+    th.num { text-align: right; }
+    td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #0f0f0f; }
+
+    .td-nf-name { color: #ccc; }
+    .td-cprod { font-family: monospace; font-size: 11px; color: var(--yellow); }
+    .num { text-align: right; color: #ccc; }
+
+    select.item-select {
+      background: var(--surface3); border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 12px;
+      padding: 6px 10px; outline: none; max-width: 320px;
+    }
+    select.item-select:focus { border-color: #444; }
+
+    .empty { text-align: center; color: #333; padding: 40px; }
+
+    footer { text-align: center; font-size: 11px; color: #222; padding: 20px; border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="{{ url_for('web.index') }}" class="logo">AE<span>G</span>IS</a>
+  <span class="header-title">Conciliação NF-e · {{ account.name }}</span>
+  <div class="header-actions">
+    <a href="{{ url_for('costs.custos', seller_id=seller_id) }}" class="btn btn-ghost">← Custos</a>
+  </div>
+</header>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <main style="padding-bottom:0">
+    <div class="flashes">
+      {% for cat, msg in messages %}
+      <div class="flash {{ cat }}">{{ msg }}</div>
+      {% endfor %}
+    </div>
+  </main>
+  {% endif %}
+{% endwith %}
+
+<main>
+  <p class="hint">
+    Itens de notas fiscais que ainda não têm um anúncio vinculado. O nome do produto na nota
+    raramente bate com o título do anúncio — selecione manualmente o anúncio correto pra cada linha.
+    Uma vez vinculado, notas futuras do mesmo fornecedor com o mesmo código de produto (cProd)
+    conciliam e atualizam o custo automaticamente, sem passar por aqui de novo.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Fornecedor</th>
+          <th>cProd</th>
+          <th>Descrição na nota</th>
+          <th class="num">Qtd</th>
+          <th class="num">Valor unit.</th>
+          <th>Vincular a</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in pending %}
+        <tr>
+          <td class="td-nf-name">{{ p.supplier_name or p.supplier_cnpj }}</td>
+          <td class="td-cprod">{{ p.cprod }}</td>
+          <td>{{ p.xprod }}</td>
+          <td class="num">{{ '%.2f'|format(p.qtd or 0) }}</td>
+          <td class="num">R$ {{ '%.2f'|format(p.valor_unit or 0) }}</td>
+          <td colspan="2">
+            <form method="POST"
+                  action="{{ url_for('costs.conciliacao_nfe_save', seller_id=seller_id, nfe_item_id=p.id) }}"
+                  style="display:flex; gap:8px; align-items:center;">
+              <select name="item_id" class="item-select" required>
+                <option value="">Selecione o anúncio…</option>
+                {% for it in items %}
+                <option value="{{ it.id }}">{{ it.title }} ({{ it.id }})</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn btn-primary">Vincular</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="empty">Nenhum item pendente de conciliação.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<footer>AEGIS · {{ account.name }} · {{ account.seller_id }}</footer>
+
+</body>
+</html>

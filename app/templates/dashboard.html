@@ -537,6 +537,7 @@
     <a href="{{ url_for('promotions.promocoes', seller_id=account.seller_id) }}" class="btn btn-ghost">Promoções</a>
     <a href="{{ url_for('costs.apuracao', seller_id=account.seller_id) }}"       class="btn btn-ghost">Apuração</a>
     <a href="{{ url_for('costs.custos', seller_id=account.seller_id) }}"          class="btn btn-ghost">Custos</a>
+    <a href="{{ url_for('stock.estoque', seller_id=account.seller_id) }}"        class="btn btn-ghost">Estoque</a>
     <a href="/collect/{{ account.name }}" class="btn btn-primary">↻ Atualizar</a>
     <a href="/" class="btn btn-ghost">← Contas</a>
   </div>
@@ -985,7 +986,7 @@
             <div class="chips">
               {% for a in item.alerts %}
                 {% if   a == 'pausado'                %}<span class="chip chip-pausado">pausado</span>
-                {% elif a == 'sem estoque'             %}<span class="chip chip-semest">sem est.</span>
+                {% elif a == 'sem estoque'             %}<span class="chip chip-semest">Sem estoque</span>
                 {% elif a == 'estoque não rastreado'   %}<span class="chip chip-semrastr">sem rastr.</span>
                 {% elif a == 'esfriando'               %}<span class="chip chip-esfriando">esfriando</span>
                 {% elif a == 'desacelerando'           %}<span class="chip chip-desacel">desacel.</span>

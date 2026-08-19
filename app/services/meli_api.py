@@ -1,5 +1,15 @@
 import requests
 from app.config import MELI_API_URL
+from app.utils.logger import get_logger
+
+log = get_logger("meli_api")
+
+
+class StockFetchError(Exception):
+    """
+    Levantado quando a API não retornou dado confiável de estoque FULL
+    (404/403/etc). Nunca deve ser interpretado como estoque = 0 pelo chamador.
+    """
 
 
 # ── Helper base ───────────────────────────────────────────────────────────────
@@ -84,6 +94,36 @@ def get_items_batch(token: str, item_ids: list) -> list:
     return results
 
 
+# ── Tarifa/comissão do anúncio ──────────────────────────────────────────────────
+
+def get_listing_fee(token: str, item_id: str) -> dict:
+    """
+    Busca a comissão real do anúncio via GET /sites/{site_id}/listing_prices,
+    usando preço/categoria/tipo de anúncio atuais (chamada autenticada —
+    a API bloqueia sem token). Não fixa nenhum threshold de preço no código:
+    a API já retorna fixed_fee/percentage_fee compostos, o que for aplicável
+    pro preço atual do item.
+    """
+    detail = get_item_detail(token, item_id)
+    site_id     = detail["site_id"]
+    price       = detail["price"]
+
+    resp = _get(f"{MELI_API_URL}/sites/{site_id}/listing_prices", token, params={
+        "price":           price,
+        "listing_type_id": detail["listing_type_id"],
+        "category_id":     detail["category_id"],
+    })
+
+    fee_details = resp.get("sale_fee_details", {})
+    return {
+        "item_id":         item_id,
+        "price":           price,
+        "sale_fee_amount": resp.get("sale_fee_amount", 0),
+        "percentage_fee":  fee_details.get("percentage_fee", 0),
+        "fixed_fee":       fee_details.get("fixed_fee", 0),
+    }
+
+
 # ── Estoque FULL ──────────────────────────────────────────────────────────────
 
 def get_inventory_ids_from_item(item: dict) -> list:
@@ -106,7 +146,9 @@ def get_inventory_stock(token: str, inventory_id: str) -> dict:
     Retorna estoque FULL via endpoint correto:
       GET /inventories/{inventory_id}/stock/fulfillment
     Resposta esperada: {"total": N, "locations": [...]}
-    Retorna {} se 404 (inventory sem FULL).
+    Levanta StockFetchError em 404/403 — NÃO retorna {} silenciosamente,
+    porque isso já causou estoque sendo zerado incorretamente (404/403
+    não significa estoque = 0, pode ser erro transitório/permissão).
     """
     try:
         return _get(
@@ -115,7 +157,9 @@ def get_inventory_stock(token: str, inventory_id: str) -> dict:
         )
     except requests.HTTPError as e:
         if e.response.status_code in (404, 403):
-            return {}
+            raise StockFetchError(
+                f"inventory_id={inventory_id}: HTTP {e.response.status_code}"
+            ) from e
         raise
 
 
@@ -124,6 +168,7 @@ def get_full_inventory(token: str, item_id: str) -> dict:
     Retorna dados de estoque FULL do anúncio via endpoint legado.
     Endpoint: /items/{item_id}/fulfillment_stock
     Prefira get_inventory_stock() quando o inventory_id estiver disponível.
+    Levanta StockFetchError em 404 — ver nota em get_inventory_stock().
     """
     try:
         return _get(
@@ -132,7 +177,7 @@ def get_full_inventory(token: str, item_id: str) -> dict:
         )
     except requests.HTTPError as e:
         if e.response.status_code == 404:
-            return {}   # anúncio sem FULL
+            raise StockFetchError(f"item_id={item_id}: HTTP 404") from e
         raise
 
 
@@ -164,7 +209,15 @@ def get_orders(token: str, seller_id: str, days: int = None) -> list:
 
     while True:
         params["offset"] = offset
-        data = _get(f"{MELI_API_URL}/orders/search", token, params=params)
+        try:
+            data = _get(f"{MELI_API_URL}/orders/search", token, params=params)
+        except Exception as e:
+            log.error(
+                f"[get_orders] seller={seller_id}: falha ao buscar página "
+                f"offset={offset} — {e}. Mantendo {len(orders)} pedido(s) já "
+                f"coletado(s) nesta chamada em vez de descartar tudo."
+            )
+            break
 
         results = data.get("results", [])
         orders.extend(results)

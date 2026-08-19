@@ -318,8 +318,21 @@ def _classify(
                 f"(crítico abaixo de {COVERAGE_CRITICAL}d)",
             )
 
-    if giro_7d > GIRO_MIN and stock_tracked and stock == 0:
+    out_of_stock = stock_tracked and stock == 0
+
+    if giro_7d > GIRO_MIN and out_of_stock:
         return "Crítico", "vendendo com estoque FULL zerado — reposição urgente"
+
+    # Ruptura que já zerou o giro: a causa é falta de estoque, não desinteresse.
+    # Sem esta checagem, o trend "esfriando"/"desacelerando" (calculado só a
+    # partir do giro) classificava esses itens como Oportunidade, escondendo
+    # a urgência real de reposição.
+    if out_of_stock and giro_30d >= TREND_ALERT_MIN_GIRO30:
+        return (
+            "Crítico",
+            f"sem estoque — vendia {giro_early}/dia (dias 16-30) e zerou o "
+            f"estoque FULL (giro 30d: {giro_30d}/dia) — reposição urgente",
+        )
 
     # ── 3. OPORTUNIDADE ───────────────────────────────────────────────────────
 
@@ -385,18 +398,22 @@ def _build_alerts(
     if status == "paused" and not is_catalog:
         alerts.append("pausado")
 
-    if giro_7d > GIRO_MIN and stock_tracked and stock == 0:
-        alerts.append("sem estoque")
+    out_of_stock = stock_tracked and stock == 0
 
-    if giro_30d > GIRO_MIN and not stock_tracked:
+    if out_of_stock:
+        alerts.append("sem estoque")
+    elif giro_30d > GIRO_MIN and not stock_tracked:
         alerts.append("estoque não rastreado")
 
-    if trend == "esfriando":
-        alerts.append("esfriando")
-    elif trend == "desacelerando":
-        alerts.append("desacelerando")
-    elif trend == "acelerando" and giro_7d >= 1.0:
-        alerts.append("acelerando")
+    # Se o item está sem estoque, o giro em queda é consequência da ruptura,
+    # não desinteresse do mercado — não reportar esfriando/desacelerando junto.
+    if not out_of_stock:
+        if trend == "esfriando":
+            alerts.append("esfriando")
+        elif trend == "desacelerando":
+            alerts.append("desacelerando")
+        elif trend == "acelerando" and giro_7d >= 1.0:
+            alerts.append("acelerando")
 
     return alerts
 
@@ -807,24 +824,31 @@ def get_alerts(items: list) -> list:
     Gera lista priorizada de alertas a partir dos itens já computados.
 
     Tipos de alerta:
-      ruptura          — vendendo com estoque FULL zerado
+      sem_estoque       — estoque FULL zerado (com giro ativo ou vendia recentemente)
       cobertura_critica — cobertura < COVERAGE_CRITICAL dias
       pausado_vendendo — status paused com giro ativo
-      esfriando        — trend esfriando com volume relevante
-      desacelerando    — trend desacelerando com giro > 1/dia
+      esfriando        — trend esfriando com volume relevante (item COM estoque)
+      desacelerando    — trend desacelerando com giro > 1/dia (item COM estoque)
+
+    Importante: quando o item está sem estoque (out_of_stock), o giro cai a
+    zero como CONSEQUÊNCIA da ruptura, não por desinteresse do mercado. Por
+    isso esfriando/desacelerando só são emitidos para itens COM estoque —
+    caso contrário o alerta correto e urgente é "sem_estoque".
     """
     _SEV_ORDER = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
     alerts = []
 
     for item in items:
         t = item['title'][:50]
+        out_of_stock = item['stock_tracked'] and item['stock'] == 0
+        had_recent_demand = item['giro_30d'] >= TREND_ALERT_MIN_GIRO30 or item['giro_7d'] > GIRO_MIN
 
-        if item['giro_7d'] > GIRO_MIN and item['stock_tracked'] and item['stock'] == 0:
+        if out_of_stock and had_recent_demand:
             alerts.append({
                 'severity': 'critical',
-                'type':     'ruptura',
-                'title':    'Ruptura iminente',
-                'detail':   f"{t} — {item['giro_7d']}/dia, estoque FULL zerado",
+                'type':     'sem_estoque',
+                'title':    'Sem estoque',
+                'detail':   f"{t} — giro de {item['giro_30d']}/dia (30d), estoque FULL zerado. Ação imediata.",
                 'item_id':  item['id'],
             })
 
@@ -848,38 +872,39 @@ def get_alerts(items: list) -> list:
                 'item_id':  item['id'],
             })
 
-        if item['trend'] == 'esfriando' and item['giro_30d'] >= TREND_ALERT_MIN_GIRO30:
-            days_off = item.get('days_since_last_sale')
-            last_dt  = item.get('last_sale_date', '')
-            if days_off is not None and last_dt:
-                last_fmt = f"{last_dt[8:10]}/{last_dt[5:7]}"
-                sem_venda = f"sem vendas há {days_off}d (últ: {last_fmt})"
-            else:
-                sem_venda = "sem vendas nos últimos 7d"
-            alerts.append({
-                'severity': 'medium',
-                'type':     'esfriando',
-                'title':    'Esfriando',
-                'detail':   f"{t} — era {item['giro_early']}/dia, {sem_venda}",
-                'item_id':  item['id'],
-            })
+        if not out_of_stock:
+            if item['trend'] == 'esfriando' and item['giro_30d'] >= TREND_ALERT_MIN_GIRO30:
+                days_off = item.get('days_since_last_sale')
+                last_dt  = item.get('last_sale_date', '')
+                if days_off is not None and last_dt:
+                    last_fmt = f"{last_dt[8:10]}/{last_dt[5:7]}"
+                    sem_venda = f"sem vendas há {days_off}d (últ: {last_fmt})"
+                else:
+                    sem_venda = "sem vendas nos últimos 7d"
+                alerts.append({
+                    'severity': 'medium',
+                    'type':     'esfriando',
+                    'title':    'Esfriando',
+                    'detail':   f"{t} — era {item['giro_early']}/dia, {sem_venda}",
+                    'item_id':  item['id'],
+                })
 
-        if (item['trend'] == 'desacelerando'
-                and item['giro_30d'] >= 1.0
-                and item.get('giro_early', 0) > 0):
-            days_off = item.get('days_since_last_sale')
-            last_dt  = item.get('last_sale_date', '')
-            last_info = ""
-            if days_off is not None and last_dt:
-                last_fmt = f"{last_dt[8:10]}/{last_dt[5:7]}"
-                last_info = f" (últ: {last_fmt})"
-            alerts.append({
-                'severity': 'low',
-                'type':     'desacelerando',
-                'title':    'Desacelerando',
-                'detail':   f"{t} — de {item['giro_early']}/dia → {item['giro_7d']}/dia{last_info}",
-                'item_id':  item['id'],
-            })
+            if (item['trend'] == 'desacelerando'
+                    and item['giro_30d'] >= 1.0
+                    and item.get('giro_early', 0) > 0):
+                days_off = item.get('days_since_last_sale')
+                last_dt  = item.get('last_sale_date', '')
+                last_info = ""
+                if days_off is not None and last_dt:
+                    last_fmt = f"{last_dt[8:10]}/{last_dt[5:7]}"
+                    last_info = f" (últ: {last_fmt})"
+                alerts.append({
+                    'severity': 'low',
+                    'type':     'desacelerando',
+                    'title':    'Desacelerando',
+                    'detail':   f"{t} — de {item['giro_early']}/dia → {item['giro_7d']}/dia{last_info}",
+                    'item_id':  item['id'],
+                })
 
     # Catálogo ML — alerta consolidado
     catalog_items = [i for i in items if i["is_catalog"]]

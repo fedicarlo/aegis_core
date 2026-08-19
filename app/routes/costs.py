@@ -8,13 +8,21 @@ from app.database import (
     get_account_by_seller_id, get_items_for_costs,
     save_cost, get_seller_defaults, save_seller_defaults,
     apply_defaults_to_all, init_costs_table, get_cost_history,
+    init_nfe_tables, save_nfe_document, save_nfe_items,
+    auto_reconcile_nfe_items, get_pending_nfe_items, reconcile_nfe_item,
+    init_ml_fee_cache_table, get_cached_ml_fee, save_ml_fee_cache, update_ml_fee_rate,
 )
+from app.services.nfe_parser import parse_nfe_xml, NFeParseError
+from app.services.meli_api import get_listing_fee
+from app.services.meli_auth import get_valid_token
 
 costs_bp = Blueprint("costs", __name__)
 
 
 def _require_seller(seller_id: str):
     init_costs_table()
+    init_nfe_tables()
+    init_ml_fee_cache_table()
     return get_account_by_seller_id(seller_id)
 
 
@@ -131,6 +139,41 @@ def cost_history(seller_id, item_id):
             "changed_at": dt.datetime.fromtimestamp(ts).strftime("%d/%m/%Y %H:%M") if ts else "—",
         })
     return jsonify(result)
+
+
+# ── Comissão ML sob demanda (com cache curto) ─────────────────────────────────
+
+@costs_bp.route("/custos/<seller_id>/ml-fee/<item_id>")
+def ml_fee(seller_id, item_id):
+    account = _require_seller(seller_id)
+    if not account:
+        return jsonify({"ok": False, "error": "Conta não encontrada"}), 404
+
+    cached = get_cached_ml_fee(seller_id, item_id, max_age_hours=36)
+    if cached:
+        return jsonify({
+            "ok": True, "cached": True,
+            "percentage_fee": cached["percentage_fee"],
+            "fixed_fee": cached["fixed_fee"],
+        })
+
+    try:
+        token = get_valid_token(account)
+        fee   = get_listing_fee(token, item_id)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 502
+
+    save_ml_fee_cache(
+        seller_id, item_id, fee["percentage_fee"], fee["fixed_fee"],
+        fee["sale_fee_amount"], fee["price"],
+    )
+    update_ml_fee_rate(seller_id, item_id, "", fee["percentage_fee"] / 100.0)
+
+    return jsonify({
+        "ok": True, "cached": False,
+        "percentage_fee": fee["percentage_fee"],
+        "fixed_fee": fee["fixed_fee"],
+    })
 
 
 # ── Defaults por seller ───────────────────────────────────────────────────────
@@ -490,6 +533,93 @@ def import_costs(seller_id):
 
     flash(f"Importação concluída — {len(validated)} produto(s) salvos.", "success")
     return redirect(url_for("costs.custos", seller_id=seller_id))
+
+
+# ── Importar NF-e (XML) ────────────────────────────────────────────────────────
+
+@costs_bp.route("/custos/<seller_id>/import-nfe", methods=["POST"])
+def import_nfe(seller_id):
+    account = _require_seller(seller_id)
+    if not account:
+        flash("Conta não encontrada.", "error")
+        return redirect(url_for("costs.custos", seller_id=seller_id))
+
+    file = request.files.get("nfe_file")
+    if not file or not file.filename.lower().endswith(".xml"):
+        flash("Envie um arquivo .xml válido.", "error")
+        return redirect(url_for("costs.custos", seller_id=seller_id))
+
+    try:
+        parsed = parse_nfe_xml(file.read())
+    except NFeParseError as e:
+        flash(f"Erro ao ler o XML da NF-e: {e}", "error")
+        return redirect(url_for("costs.custos", seller_id=seller_id))
+
+    try:
+        doc_id = save_nfe_document(
+            seller_id, parsed["chave_acesso"], parsed["supplier_cnpj"],
+            parsed["supplier_name"], parsed["emitted_at"],
+        )
+    except ValueError as e:
+        flash(str(e), "error")
+        return redirect(url_for("costs.custos", seller_id=seller_id))
+
+    n_items = save_nfe_items(doc_id, parsed["items"])
+    n_auto = auto_reconcile_nfe_items(seller_id, doc_id)
+    n_pending = n_items - n_auto
+
+    msg = f"Nota importada — {n_items} item(ns) da nota de '{parsed['supplier_name'] or parsed['supplier_cnpj']}'."
+    if n_auto:
+        msg += f" {n_auto} conciliado(s) automaticamente (custo já atualizado)."
+    if n_pending:
+        msg += f" {n_pending} aguardando conciliação manual."
+    flash(msg, "success")
+
+    if n_pending:
+        return redirect(url_for("costs.conciliacao_nfe", seller_id=seller_id))
+    return redirect(url_for("costs.custos", seller_id=seller_id))
+
+
+# ── Conciliação manual NF-e × anúncio ──────────────────────────────────────────
+
+@costs_bp.route("/custos/<seller_id>/conciliacao")
+def conciliacao_nfe(seller_id):
+    account = _require_seller(seller_id)
+    if not account:
+        flash("Conta não encontrada.", "error")
+        return redirect(url_for("web.index"))
+
+    pending = get_pending_nfe_items(seller_id)
+    items   = get_items_for_costs(seller_id)
+
+    return render_template(
+        "conciliacao.html",
+        account   = account,
+        seller_id = seller_id,
+        pending   = pending,
+        items     = items,
+    )
+
+
+@costs_bp.route("/custos/<seller_id>/conciliacao/<int:nfe_item_id>", methods=["POST"])
+def conciliacao_nfe_save(seller_id, nfe_item_id):
+    account = _require_seller(seller_id)
+    if not account:
+        flash("Conta não encontrada.", "error")
+        return redirect(url_for("web.index"))
+
+    item_id = request.form.get("item_id", "").strip()
+    if not item_id:
+        flash("Selecione um anúncio pra vincular.", "error")
+        return redirect(url_for("costs.conciliacao_nfe", seller_id=seller_id))
+
+    try:
+        reconcile_nfe_item(nfe_item_id, seller_id, item_id)
+        flash("Item conciliado e custo atualizado.", "success")
+    except ValueError as e:
+        flash(str(e), "error")
+
+    return redirect(url_for("costs.conciliacao_nfe", seller_id=seller_id))
 
 
 # ── Apuração por período ──────────────────────────────────────────────────────

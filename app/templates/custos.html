@@ -222,6 +222,8 @@
     </button>
     <a href="{{ url_for('web.dashboard', account=account.name) }}" class="btn btn-ghost">← Dashboard</a>
     <a href="{{ url_for('costs.apuracao', seller_id=seller_id) }}"  class="btn btn-ghost">Apuração</a>
+    <a href="{{ url_for('costs.conciliacao_nfe', seller_id=seller_id) }}" class="btn btn-ghost">Conciliação NF-e</a>
+    <a href="{{ url_for('stock.estoque', seller_id=seller_id) }}" class="btn btn-ghost">Estoque</a>
     <a href="{{ url_for('costs.template_costs', seller_id=seller_id) }}" class="btn btn-ghost">Template .xlsx</a>
     <a href="{{ url_for('costs.export_costs',   seller_id=seller_id) }}" class="btn btn-primary">Exportar .xlsx</a>
   </div>
@@ -293,6 +295,15 @@
           enctype="multipart/form-data" style="display:flex;align-items:center;gap:8px">
       <input type="file" name="file" accept=".xlsx">
       <button type="submit" class="btn btn-primary">Importar</button>
+    </form>
+
+    <div class="sep"></div>
+
+    <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Importar NF-e (XML)</span>
+    <form method="POST" action="{{ url_for('costs.import_nfe', seller_id=seller_id) }}"
+          enctype="multipart/form-data" style="display:flex;align-items:center;gap:8px">
+      <input type="file" name="nfe_file" accept=".xml">
+      <button type="submit" class="btn btn-green">Importar nota</button>
     </form>
 
     <div class="sep"></div>
@@ -394,6 +405,8 @@
                    data-field="ml_fee_rate"
                    oninput="markDirty(this); recalcMargem(this)">
             <span class="tag-unit">%</span>
+            <button class="btn-hist" type="button" title="Buscar comissão real na API do ML"
+                    onclick="fetchMlFee(this)">⟳</button>
           </td>
 
           <!-- Frete -->
@@ -583,6 +596,39 @@ function showToast(msg, type = 'success') {
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 4000);
+}
+
+// ── Comissão ML sob demanda ─────────────────────────────────────────────────────
+async function fetchMlFee(btn) {
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  const input = tr.querySelector('[data-field="ml_fee_rate"]');
+
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = '…';
+
+  try {
+    const res  = await fetch(`/custos/${SELLER_ID}/ml-fee/${id}`);
+    const data = await res.json();
+    if (data.ok) {
+      input.value = data.percentage_fee.toFixed(2);
+      recalcMargem(input);
+      showToast(
+        `Comissão ML atualizada: ${data.percentage_fee}%` +
+        (data.fixed_fee ? ` + R$ ${data.fixed_fee.toFixed(2)} fixo` : '') +
+        (data.cached ? ' (cache)' : ''),
+        'success'
+      );
+    } else {
+      showToast('❌ Erro ao buscar comissão: ' + (data.error || 'desconhecido'), 'error');
+    }
+  } catch (e) {
+    showToast('❌ Falha na requisição: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
 }
 
 // ── History modal ─────────────────────────────────────────────────────────────

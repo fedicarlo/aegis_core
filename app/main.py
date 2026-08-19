@@ -1,5 +1,6 @@
-from flask import Flask
+from flask import Flask, request, session, redirect, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
+from app import config
 from app.database import init_db
 from app.routes.auth import auth_bp
 from app.routes.web import web_bp
@@ -11,6 +12,7 @@ from app.routes.relatorio import relatorio_bp
 from app.routes.simulador import simulador_bp
 from app.routes.financeiro import financeiro_bp
 from app.routes.analise_queda import analise_queda_bp
+from app.routes.stock import stock_bp
 
 
 def _num_br(value) -> str:
@@ -27,12 +29,22 @@ def _brl(value) -> str:
     return f"R$ {_num_br(value)}"
 
 
+PUBLIC_ENDPOINTS = {"auth.authorize", "auth.callback", "auth.login", "static"}
+
+
 def create_app():
     app = Flask(__name__, template_folder="templates")
-    app.secret_key = "aegis-secret-key-change-in-prod"
+    app.secret_key = config.FLASK_SECRET_KEY
 
     # Necessário para funcionar corretamente atrás do ngrok
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+    @app.before_request
+    def require_login():
+        if request.endpoint is None or request.endpoint in PUBLIC_ENDPOINTS:
+            return
+        if not session.get("admin"):
+            return redirect(url_for("auth.login", next=request.path))
 
     app.jinja_env.filters["num_br"] = _num_br
     app.jinja_env.filters["brl"]    = _brl
@@ -47,13 +59,14 @@ def create_app():
     app.register_blueprint(simulador_bp)
     app.register_blueprint(financeiro_bp)
     app.register_blueprint(analise_queda_bp)
+    app.register_blueprint(stock_bp)
 
     with app.app_context():
         from app.database import (
             init_data_tables, init_costs_table,
             init_promotions_table, init_history_tables,
             init_meli_finance_tables, init_mp_tables,
-            init_mp_other_movements_table,
+            init_mp_other_movements_table, init_stock_own_tables,
         )
         init_db()
         init_data_tables()
@@ -63,11 +76,15 @@ def create_app():
         init_mp_tables()
         init_meli_finance_tables()
         init_mp_other_movements_table()
+        init_stock_own_tables()
 
     return app
 
 
 if __name__ == "__main__":
+    import os
+
+    port = int(os.getenv("PORT", 8080))
     app = create_app()
-    print("\n🟢 AEGIS rodando em http://localhost:8080\n")
-    app.run(debug=True, port=8080)
+    print(f"\n🟢 AEGIS rodando em http://localhost:{port}\n")
+    app.run(debug=True, host="0.0.0.0", port=port)

@@ -1,33 +1,42 @@
 import os
-from dotenv import load_dotenv
+import secrets
+from dotenv import load_dotenv, set_key
 
-load_dotenv()
+ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+load_dotenv(ENV_PATH)
+
+
+def _get_or_create_secret(key: str, generator) -> str:
+    """Lê a chave do .env; se não existir, gera uma e persiste no arquivo."""
+    value = os.getenv(key)
+    if not value:
+        value = generator()
+        set_key(ENV_PATH, key, value)
+        os.environ[key] = value
+    return value
+
 
 CLIENT_ID     = os.getenv("MELI_CLIENT_ID")
 CLIENT_SECRET = os.getenv("MELI_CLIENT_SECRET")
 REDIRECT_URI  = os.getenv("MELI_REDIRECT_URI", "http://localhost:5000/callback")
 
+# Sessão administrativa (protege todas as rotas exceto /authorize e /callback)
+FLASK_SECRET_KEY = _get_or_create_secret("FLASK_SECRET_KEY", lambda: secrets.token_hex(32))
+ADMIN_PASSWORD   = _get_or_create_secret("ADMIN_PASSWORD", lambda: secrets.token_urlsafe(9))
+
 MELI_AUTH_URL  = "https://auth.mercadolivre.com.br/authorization"
 MELI_TOKEN_URL = "https://api.mercadolibre.com/oauth/token"
 MELI_API_URL   = "https://api.mercadolibre.com"
 
-DB_PATH = "aegis.db"
+DB_PATH = os.getenv("DB_PATH", "aegis.db")
 
 ACCOUNTS = [
     "Maximus",
-    "Amigão Suplementos",
     "Querencia",
     "Smash",
-    "Member XXX",
-    "Foco Fit",
-    "Profit",
-    "Ocean Drop",
-    "Renova Be",
-    "Iron Meal",
-    "Max Fem",
-    "My Whey",
-    "Gloryful",
+    "ECO3D",
     "The Good Store",
-    "Under Labz",
-    "Strongest",
+    "NEXORAHUB",
+    "VIVALEVE",
+    "BENETIMCOMER",
 ]

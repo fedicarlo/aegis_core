@@ -95,9 +95,9 @@
     Você será redirecionado ao Mercado Livre para confirmar o acesso.
   </p>
 
-  <div class="link-box">{{ auth_url }}</div>
+  <div class="link-box">{{ auth_url | safe }}</div>
 
-  <a href="{{ auth_url }}" class="btn-connect">Conectar ao Mercado Livre →</a>
+  <a href="{{ auth_url | safe }}" class="btn-connect">Conectar ao Mercado Livre →</a>
 
   <button class="btn-copy" onclick="copyLink()">📋 Copiar link</button>
 
@@ -107,7 +107,7 @@
 
 <script>
   function copyLink() {
-    navigator.clipboard.writeText("{{ auth_url }}").then(() => {
+    navigator.clipboard.writeText({{ auth_url | tojson }}).then(() => {
       const btn = document.querySelector('.btn-copy');
       btn.textContent = '✅ Copiado!';
       setTimeout(() => btn.textContent = '📋 Copiar link', 2000);

@@ -3,6 +3,8 @@ import time
 from app.config import DB_PATH, ACCOUNTS
 from app.utils.logger import get_logger as _get_logger
 
+_orders_log = _get_logger("database.orders")
+
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
@@ -233,25 +235,44 @@ def save_stock(seller_id: str, item_id: str, available_qty: int):
     conn.close()
 
 
-def save_orders(seller_id: str, orders: list):
+def save_orders(seller_id: str, orders: list) -> dict:
+    """
+    Salva pedidos com isolamento por pedido: um pedido com dado inválido
+    não derruba o lote inteiro. Commit incremental (por pedido) em vez de
+    um único commit no final — se a coleta for interrompida no meio, os
+    pedidos já processados até ali permanecem salvos.
+    """
     conn = get_conn()
+    saved = 0
+    failed = 0
     for order in orders:
-        for item in order.get("order_items", []):
-            conn.execute("""
-                INSERT OR REPLACE INTO orders
-                (id, seller_id, item_id, quantity, price, date_created, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                str(order.get("id")),
-                seller_id,
-                str(item.get("item", {}).get("id") or ""),
-                item.get("quantity"),
-                item.get("unit_price"),
-                order.get("date_created"),
-                order.get("status"),
-            ))
-    conn.commit()
+        order_id = str(order.get("id"))
+        try:
+            for item in order.get("order_items", []):
+                conn.execute("""
+                    INSERT OR REPLACE INTO orders
+                    (id, seller_id, item_id, quantity, price, date_created, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    order_id,
+                    seller_id,
+                    str(item.get("item", {}).get("id") or ""),
+                    item.get("quantity"),
+                    item.get("unit_price"),
+                    order.get("date_created"),
+                    order.get("status"),
+                ))
+            conn.commit()
+            saved += 1
+        except Exception as e:
+            conn.rollback()
+            failed += 1
+            _orders_log.error(f"[{seller_id}] pedido {order_id} não salvo: {e}")
+
     conn.close()
+    if failed:
+        _orders_log.warning(f"[{seller_id}] save_orders: {saved} salvo(s), {failed} falhou(aram)")
+    return {"saved": saved, "failed": failed}
 
 
 def get_items_by_seller(seller_id: str) -> list:
@@ -488,6 +509,72 @@ def apply_defaults_to_all(seller_id: str, tax_rate: float, ml_fee_rate: float):
     conn.close()
 
 
+def init_ml_fee_cache_table():
+    """Cache curto (24-48h) da tarifa real do anúncio buscada sob demanda na API do ML."""
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ml_fee_cache (
+            item_id          TEXT NOT NULL,
+            seller_id        TEXT NOT NULL,
+            percentage_fee   REAL,
+            fixed_fee        REAL,
+            sale_fee_amount  REAL,
+            price_at_fetch   REAL,
+            fetched_at       INTEGER NOT NULL,
+            PRIMARY KEY (item_id, seller_id)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def get_cached_ml_fee(seller_id: str, item_id: str, max_age_hours: int = 36):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM ml_fee_cache WHERE seller_id = ? AND item_id = ?",
+        (seller_id, item_id)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    row = dict(row)
+    age_hours = (int(time.time()) - row["fetched_at"]) / 3600
+    if age_hours > max_age_hours:
+        return None
+    return row
+
+
+def save_ml_fee_cache(seller_id: str, item_id: str, percentage_fee: float,
+                       fixed_fee: float, sale_fee_amount: float, price_at_fetch: float):
+    conn = get_conn()
+    conn.execute("""
+        INSERT OR REPLACE INTO ml_fee_cache
+            (item_id, seller_id, percentage_fee, fixed_fee, sale_fee_amount, price_at_fetch, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (item_id, seller_id, percentage_fee, fixed_fee, sale_fee_amount, price_at_fetch, int(time.time())))
+    conn.commit()
+    conn.close()
+
+
+def update_ml_fee_rate(seller_id: str, item_id: str, variation_id: str, ml_fee_rate: float):
+    """Atualiza só o ml_fee_rate (via save_cost), preservando unit_cost/tax_rate/shipping_cost/marca atuais."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT unit_cost, tax_rate, shipping_cost, marca FROM product_costs "
+        "WHERE seller_id=? AND item_id=? AND variation_id=?",
+        (seller_id, item_id, variation_id or "")
+    ).fetchone()
+    conn.close()
+
+    defaults = get_seller_defaults(seller_id)
+    unit_cost     = row["unit_cost"]     if row else 0.0
+    tax_rate      = row["tax_rate"]      if row else defaults["tax_rate"]
+    shipping_cost = row["shipping_cost"] if row else 0.0
+    marca         = row["marca"]         if row else ""
+
+    save_cost(seller_id, item_id, variation_id, unit_cost, tax_rate, ml_fee_rate, shipping_cost, marca)
+
+
 def get_items_for_costs(seller_id: str) -> list:
     """Retorna todos os itens do seller com custos atuais (LEFT JOIN)."""
     conn = get_conn()
@@ -556,6 +643,222 @@ def get_margin_data(seller_id: str, days: int = 30) -> list:
     """, (days, days, seller_id, seller_id)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ── NF-e (nota fiscal) ────────────────────────────────────────────────────────
+
+def init_nfe_tables():
+    """Cria tabelas de notas fiscais importadas, itens da nota e vínculo com anúncios."""
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS nfe_documents (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id     TEXT NOT NULL,
+            chave_acesso  TEXT NOT NULL,
+            supplier_cnpj TEXT NOT NULL,
+            supplier_name TEXT,
+            emitted_at    TEXT,
+            imported_at   INTEGER NOT NULL,
+            UNIQUE(seller_id, chave_acesso)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS nfe_items (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            nfe_document_id  INTEGER NOT NULL REFERENCES nfe_documents(id),
+            cprod            TEXT NOT NULL,
+            xprod            TEXT,
+            ncm              TEXT,
+            qtd              REAL,
+            valor_unit       REAL,
+            item_id          TEXT,
+            variation_id     TEXT NOT NULL DEFAULT '',
+            status           TEXT NOT NULL DEFAULT 'pendente'
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS nfe_product_links (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id     TEXT NOT NULL,
+            supplier_cnpj TEXT NOT NULL,
+            cprod         TEXT NOT NULL,
+            item_id       TEXT NOT NULL,
+            variation_id  TEXT NOT NULL DEFAULT '',
+            created_at    INTEGER NOT NULL,
+            UNIQUE(seller_id, supplier_cnpj, cprod)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def get_nfe_document_by_chave(seller_id: str, chave_acesso: str):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM nfe_documents WHERE seller_id = ? AND chave_acesso = ?",
+        (seller_id, chave_acesso)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def save_nfe_document(seller_id: str, chave_acesso: str, supplier_cnpj: str,
+                       supplier_name: str, emitted_at: str | None) -> int:
+    """Insere o cabeçalho da nota. Levanta ValueError se a chave já foi importada pra esse seller."""
+    conn = get_conn()
+    existing = conn.execute(
+        "SELECT id FROM nfe_documents WHERE seller_id = ? AND chave_acesso = ?",
+        (seller_id, chave_acesso)
+    ).fetchone()
+    if existing:
+        conn.close()
+        raise ValueError(f"Nota {chave_acesso} já foi importada anteriormente.")
+
+    cur = conn.execute("""
+        INSERT INTO nfe_documents
+            (seller_id, chave_acesso, supplier_cnpj, supplier_name, emitted_at, imported_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (seller_id, chave_acesso, supplier_cnpj, supplier_name, emitted_at, int(time.time())))
+    doc_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return doc_id
+
+
+def save_nfe_items(nfe_document_id: int, items: list) -> int:
+    """Insere os itens da nota, todos com status='pendente'. Retorna quantidade inserida."""
+    conn = get_conn()
+    for it in items:
+        conn.execute("""
+            INSERT INTO nfe_items
+                (nfe_document_id, cprod, xprod, ncm, qtd, valor_unit, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'pendente')
+        """, (
+            nfe_document_id, it["cprod"], it.get("xprod", ""),
+            it.get("ncm", ""), it.get("qtd", 0), it.get("valor_unit", 0),
+        ))
+    conn.commit()
+    conn.close()
+    return len(items)
+
+
+def get_nfe_link(seller_id: str, supplier_cnpj: str, cprod: str):
+    """Retorna {item_id, variation_id} se já existe vínculo salvo, senão None."""
+    conn = get_conn()
+    row = conn.execute("""
+        SELECT item_id, variation_id FROM nfe_product_links
+        WHERE seller_id = ? AND supplier_cnpj = ? AND cprod = ?
+    """, (seller_id, supplier_cnpj, cprod)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def save_nfe_link(seller_id: str, supplier_cnpj: str, cprod: str,
+                   item_id: str, variation_id: str = ""):
+    conn = get_conn()
+    now = int(time.time())
+    conn.execute("""
+        INSERT INTO nfe_product_links (seller_id, supplier_cnpj, cprod, item_id, variation_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(seller_id, supplier_cnpj, cprod)
+        DO UPDATE SET item_id = excluded.item_id, variation_id = excluded.variation_id
+    """, (seller_id, supplier_cnpj, cprod, item_id, variation_id or "", now))
+    conn.commit()
+    conn.close()
+
+
+def update_cost_from_nfe(seller_id: str, item_id: str, variation_id: str, new_cost: float):
+    """Atualiza só o unit_cost (via save_cost, que já trata cost_history),
+    preservando tax_rate/ml_fee_rate/shipping_cost/marca atuais do produto."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT tax_rate, ml_fee_rate, shipping_cost, marca FROM product_costs "
+        "WHERE seller_id=? AND item_id=? AND variation_id=?",
+        (seller_id, item_id, variation_id or "")
+    ).fetchone()
+    conn.close()
+
+    defaults = get_seller_defaults(seller_id)
+    tax_rate      = row["tax_rate"]      if row else defaults["tax_rate"]
+    ml_fee_rate   = row["ml_fee_rate"]   if row else defaults["ml_fee_rate"]
+    shipping_cost = row["shipping_cost"] if row else 0.0
+    marca         = row["marca"]         if row else ""
+
+    save_cost(seller_id, item_id, variation_id, new_cost, tax_rate, ml_fee_rate, shipping_cost, marca)
+
+
+def get_pending_nfe_items(seller_id: str) -> list:
+    """Itens de NF-e ainda não conciliados com um anúncio, para esse seller."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT ni.id, ni.cprod, ni.xprod, ni.ncm, ni.qtd, ni.valor_unit,
+               nd.supplier_cnpj, nd.supplier_name, nd.emitted_at
+        FROM nfe_items ni
+        JOIN nfe_documents nd ON nd.id = ni.nfe_document_id
+        WHERE nd.seller_id = ? AND ni.status = 'pendente'
+        ORDER BY nd.imported_at DESC, ni.id
+    """, (seller_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def reconcile_nfe_item(nfe_item_id: int, seller_id: str, item_id: str, variation_id: str = ""):
+    """Vincula manualmente um item de NF-e a um anúncio: grava o vínculo reutilizável,
+    marca o item da nota como conciliado e atualiza o custo do produto."""
+    conn = get_conn()
+    ni = conn.execute(
+        "SELECT ni.*, nd.supplier_cnpj FROM nfe_items ni "
+        "JOIN nfe_documents nd ON nd.id = ni.nfe_document_id WHERE ni.id = ?",
+        (nfe_item_id,)
+    ).fetchone()
+    if not ni:
+        conn.close()
+        raise ValueError(f"Item de NF-e {nfe_item_id} não encontrado.")
+    ni = dict(ni)
+
+    conn.execute("""
+        UPDATE nfe_items SET item_id = ?, variation_id = ?, status = 'conciliado'
+        WHERE id = ?
+    """, (item_id, variation_id or "", nfe_item_id))
+    conn.commit()
+    conn.close()
+
+    save_nfe_link(seller_id, ni["supplier_cnpj"], ni["cprod"], item_id, variation_id)
+    update_cost_from_nfe(seller_id, item_id, variation_id, ni["valor_unit"])
+
+
+def auto_reconcile_nfe_items(seller_id: str, nfe_document_id: int) -> int:
+    """Após importar uma nota, tenta conciliar automaticamente os itens cujo
+    (fornecedor, cProd) já tem vínculo salvo de uma nota anterior. Retorna quantos conciliou."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT ni.id, ni.cprod, ni.valor_unit, nd.supplier_cnpj
+        FROM nfe_items ni
+        JOIN nfe_documents nd ON nd.id = ni.nfe_document_id
+        WHERE ni.nfe_document_id = ? AND ni.status = 'pendente'
+    """, (nfe_document_id,)).fetchall()
+    conn.close()
+
+    matched = 0
+    for r in rows:
+        link = get_nfe_link(seller_id, r["supplier_cnpj"], r["cprod"])
+        if not link:
+            continue
+        conn2 = get_conn()
+        conn2.execute("""
+            UPDATE nfe_items SET item_id = ?, variation_id = ?, status = 'conciliado'
+            WHERE id = ?
+        """, (link["item_id"], link["variation_id"], r["id"]))
+        conn2.commit()
+        conn2.close()
+        update_cost_from_nfe(seller_id, link["item_id"], link["variation_id"], r["valor_unit"])
+        matched += 1
+    return matched
 
 
 # ── Promoções ─────────────────────────────────────────────────────────────────
@@ -1639,3 +1942,174 @@ def get_performance_comparison(seller_id: str, days: int = 30) -> dict:
         "total_delta":            total_delta,
         "by_cause":               by_cause,
     }
+
+
+# ── Estoque duplo (próprio + FULL) ──────────────────────────────────────────────
+
+def init_stock_own_tables():
+    """Cria tabela de estoque próprio e de envios ao FULL (mesmo conceito da Fase 3)."""
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS stock_own (
+            item_id        TEXT NOT NULL,
+            seller_id      TEXT NOT NULL,
+            available_qty  INTEGER NOT NULL DEFAULT 0,
+            updated_at     INTEGER,
+            PRIMARY KEY (item_id, seller_id)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS shipments_full (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id       TEXT NOT NULL,
+            item_id         TEXT NOT NULL,
+            quantity        INTEGER NOT NULL,
+            shipped_at      TEXT NOT NULL,
+            reconciled_qty  INTEGER,
+            reconciled_at   INTEGER,
+            status          TEXT DEFAULT 'pending_reconciliation',
+            created_at      INTEGER
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def get_stock_own(seller_id: str) -> dict:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT item_id, available_qty FROM stock_own WHERE seller_id = ?", (seller_id,)
+    ).fetchall()
+    conn.close()
+    return {r["item_id"]: r["available_qty"] for r in rows}
+
+
+def set_stock_own(seller_id: str, item_id: str, available_qty: int):
+    """Ajuste manual de estoque próprio — ex: entrada de mercadoria do fornecedor."""
+    conn = get_conn()
+    conn.execute("""
+        INSERT OR REPLACE INTO stock_own (item_id, seller_id, available_qty, updated_at)
+        VALUES (?, ?, ?, ?)
+    """, (item_id, seller_id, available_qty, int(time.time())))
+    conn.commit()
+    conn.close()
+
+
+def register_full_shipment(seller_id: str, item_id: str, quantity: int, shipped_at: str) -> int:
+    """
+    Registra um envio de mercadoria pro FULL: debita do estoque próprio e
+    grava o evento em shipments_full como pendente de reconciliação contra
+    o próximo sync real da API do ML.
+    """
+    if quantity <= 0:
+        raise ValueError("Quantidade do envio deve ser maior que zero.")
+
+    conn = get_conn()
+    conn.execute(
+        "INSERT OR IGNORE INTO stock_own (item_id, seller_id, available_qty, updated_at) VALUES (?, ?, 0, ?)",
+        (item_id, seller_id, int(time.time())),
+    )
+    row = conn.execute(
+        "SELECT available_qty FROM stock_own WHERE item_id = ? AND seller_id = ?",
+        (item_id, seller_id),
+    ).fetchone()
+    current = row["available_qty"] if row else 0
+
+    if quantity > current:
+        conn.close()
+        raise ValueError(
+            f"Estoque próprio insuficiente: disponível {current}, envio solicitado {quantity}."
+        )
+
+    now = int(time.time())
+    conn.execute("""
+        UPDATE stock_own SET available_qty = available_qty - ?, updated_at = ?
+        WHERE item_id = ? AND seller_id = ?
+    """, (quantity, now, item_id, seller_id))
+
+    cur = conn.execute("""
+        INSERT INTO shipments_full
+            (seller_id, item_id, quantity, shipped_at, status, created_at)
+        VALUES (?, ?, ?, ?, 'pending_reconciliation', ?)
+    """, (seller_id, item_id, quantity, shipped_at, now))
+    shipment_id = cur.lastrowid
+
+    conn.commit()
+    conn.close()
+    return shipment_id
+
+
+def get_consolidated_stock(seller_id: str) -> list:
+    """Estoque próprio + FULL + total + valor (qtd × custo unitário) por item (LEFT JOIN)."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT
+            i.id, i.title,
+            COALESCE(so.available_qty, 0) AS estoque_proprio,
+            COALESCE(sf.available_qty, 0) AS estoque_full,
+            COALESCE(so.available_qty, 0) + COALESCE(sf.available_qty, 0) AS total,
+            pc.unit_cost AS unit_cost,
+            (COALESCE(so.available_qty, 0) + COALESCE(sf.available_qty, 0)) * COALESCE(pc.unit_cost, 0) AS valor_estoque
+        FROM items i
+        LEFT JOIN stock_own  so ON so.item_id = i.id AND so.seller_id = i.seller_id
+        LEFT JOIN stock_full sf ON sf.item_id = i.id AND sf.seller_id = i.seller_id
+        LEFT JOIN product_costs pc ON pc.item_id = i.id AND pc.seller_id = i.seller_id AND pc.variation_id = ''
+        WHERE i.seller_id = ?
+        ORDER BY i.title
+    """, (seller_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_shipments_history(seller_id: str, limit: int = 100) -> list:
+    """Histórico de envios ao FULL registrados manualmente, mais recentes primeiro."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT sf.id, sf.item_id, i.title, sf.quantity, sf.shipped_at,
+               sf.status, sf.reconciled_qty, sf.reconciled_at, sf.created_at
+        FROM shipments_full sf
+        LEFT JOIN items i ON i.id = sf.item_id AND i.seller_id = sf.seller_id
+        WHERE sf.seller_id = ?
+        ORDER BY sf.created_at DESC
+        LIMIT ?
+    """, (seller_id, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def reconcile_pending_shipments(seller_id: str, tolerance: int = 0) -> int:
+    """
+    Primeiro corte de reconciliação: para envios pendentes, se o estoque FULL
+    atual do item já reflete pelo menos o que foi enviado, marca como reconciliado.
+    Não é definitivo — só um sinal pra ajudar a investigar divergência de FULL.
+    """
+    conn = get_conn()
+    pending = conn.execute("""
+        SELECT id, item_id, quantity FROM shipments_full
+        WHERE seller_id = ? AND status = 'pending_reconciliation'
+    """, (seller_id,)).fetchall()
+
+    reconciled = 0
+    now = int(time.time())
+    for p in pending:
+        full_row = conn.execute(
+            "SELECT available_qty FROM stock_full WHERE item_id = ? AND seller_id = ?",
+            (p["item_id"], seller_id),
+        ).fetchone()
+        full_qty = full_row["available_qty"] if full_row else 0
+
+        if full_qty + tolerance >= p["quantity"]:
+            conn.execute("""
+                UPDATE shipments_full
+                SET reconciled_qty = ?, reconciled_at = ?, status = 'reconciled'
+                WHERE id = ?
+            """, (full_qty, now, p["id"]))
+            reconciled += 1
+
+    conn.commit()
+    conn.close()
+    return reconciled

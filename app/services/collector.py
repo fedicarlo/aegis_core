@@ -12,6 +12,7 @@ from app.services.meli_api import (
     collect_meli_order_payments,
 )
 from app.services.meli_auth import get_valid_token
+from app.utils.logger import get_logger
 from app.database import (
     get_account_by_name,
     save_items,
@@ -27,6 +28,8 @@ from app.database import (
     init_mp_tables,
     init_meli_finance_tables,
 )
+
+log = get_logger("collector")
 
 
 def collect_account(account: dict) -> dict:
@@ -54,7 +57,9 @@ def collect_account(account: dict) -> dict:
         "items_collected":      0,
         "stock_collected":      0,
         "orders_collected":     0,
+        "orders_failed":        0,
         "promotions_collected": 0,
+        "stock_skipped":        0,
         "payments_collected":   0,
         "official_payments_collected": 0,
         "catalog_detected":     0,
@@ -92,6 +97,7 @@ def collect_account(account: dict) -> dict:
     try:
         print(f"[{account['name']}] Coletando estoque FULL...")
         stock_count = 0
+        stock_skipped = 0
 
         for item in items:
             item_id = item.get("id")
@@ -128,10 +134,19 @@ def collect_account(account: dict) -> dict:
                 stock_count += 1
 
             except Exception as stock_err:
-                print(f"  [FULL] {item_id}: {stock_err}")
+                # Não chama save_stock aqui de propósito: em caso de falha
+                # (404/403/429/timeout), mantém o valor anterior no banco
+                # em vez de sobrescrever com zero.
+                stock_skipped += 1
+                log.warning(
+                    f"[{account['name']}] estoque FULL não coletado para {item_id} "
+                    f"(valor anterior mantido no banco): {stock_err}"
+                )
 
         result["stock_collected"] = stock_count
-        print(f"[{account['name']}] {stock_count} itens com estoque FULL.")
+        result["stock_skipped"] = stock_skipped
+        print(f"[{account['name']}] {stock_count} itens com estoque FULL "
+              f"({stock_skipped} pulado(s) por falha de API — valor anterior mantido).")
 
     except Exception as e:
         result["errors"].append(f"Estoque: {str(e)}")
@@ -142,9 +157,11 @@ def collect_account(account: dict) -> dict:
         print(f"[{account['name']}] Coletando pedidos (60 dias)...")
         orders = get_orders(token, seller_id, days=60)
 
-        save_orders(seller_id, orders)
-        result["orders_collected"] = len(orders)
-        print(f"[{account['name']}] {len(orders)} pedidos coletados.")
+        save_result = save_orders(seller_id, orders)
+        result["orders_collected"] = save_result["saved"]
+        result["orders_failed"] = save_result["failed"]
+        print(f"[{account['name']}] {len(orders)} pedidos buscados na API, "
+              f"{save_result['saved']} salvo(s), {save_result['failed']} falhou(aram).")
 
     except Exception as e:
         result["errors"].append(f"Pedidos: {str(e)}")
