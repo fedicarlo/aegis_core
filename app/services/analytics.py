@@ -1462,3 +1462,62 @@ def summarize_diagnostico_view(rows: list) -> dict:
         "computed_at":         computed_at,
         "total_items":         len(rows),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Análise de Queda — frase nomeando produtos por contribuição
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fmt_brl(value) -> str:
+    try:
+        v = float(value or 0)
+    except (TypeError, ValueError):
+        v = 0.0
+    s = f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {s}"
+
+
+def build_queda_summary_sentence(data: dict, top_n: int = 3) -> str | None:
+    """
+    Frase pronta nomeando os produtos que mais contribuíram pra queda de receita,
+    ordenados por contribuição absoluta (revenue_delta) — já é a mesma ordem que
+    representatividade × variação produziria, já que revenue_delta_item =
+    share_pct_prev_item × variação%_item × receita_total_anterior.
+
+    Retorna None se não houve queda no total da conta (total_delta >= 0).
+    """
+    delta = data["total_delta"]
+    if delta >= 0:
+        return None
+
+    drops = [it for it in data["items"] if it["revenue_delta"] < 0]
+    drops.sort(key=lambda it: it["revenue_delta"])  # mais negativo primeiro
+    top = drops[:top_n]
+    if not top:
+        return None
+
+    top_contribution = sum(it["revenue_delta"] for it in top)
+    pct_of_drop = round(abs(top_contribution) / abs(delta) * 100) if delta != 0 else 0
+
+    def _short(title: str) -> str:
+        return title if len(title) <= 40 else title[:37] + "…"
+
+    names = [_short(it["title"]) for it in top]
+    if len(names) == 1:
+        names_str = names[0]
+    elif len(names) == 2:
+        names_str = f"{names[0]} e {names[1]}"
+    else:
+        names_str = ", ".join(names[:-1]) + f" e {names[-1]}"
+
+    delta_pct_str = ""
+    if data.get("total_revenue_prev"):
+        delta_pct = round(delta / data["total_revenue_prev"] * 100, 1)
+        delta_pct_str = f" ({abs(delta_pct)}%)"
+
+    verbo = "responde" if len(top) == 1 else "respondem"
+
+    return (
+        f"Sua receita caiu {_fmt_brl(abs(delta))}{delta_pct_str} no período. "
+        f"{names_str} {verbo} por {pct_of_drop}% dessa queda."
+    )

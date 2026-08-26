@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from app.database import get_all_accounts, get_performance_comparison
+from app.services.analytics import build_queda_summary_sentence
 from app.utils.logger import get_logger
 
 log = get_logger("routes.analise_queda")
@@ -31,6 +32,12 @@ def analise_queda(seller_id: str):
             "total_revenue_prev": 0,
             "total_delta": 0,
             "by_cause": {},
+            "history_start": None,
+            "history_end": None,
+            "history_days_available": 0,
+            "period_prev_complete": False,
+            "data_stale_days": 0,
+            "data_is_stale": False,
         }
 
     # Separa itens que caíram dos que cresceram
@@ -38,14 +45,17 @@ def analise_queda(seller_id: str):
     growth  = [i for i in data["items"] if i["revenue_delta"] > 0]
     stable  = [i for i in data["items"] if i["revenue_delta"] == 0]
 
+    queda_sentence = build_queda_summary_sentence(data)
+
     return render_template(
         "analise_queda.html",
-        account    = account,
-        authorized = authorized,
-        seller_id  = seller_id,
-        days       = days,
-        data       = data,
-        drops      = drops,
-        growth     = growth,
-        stable     = stable,
+        account         = account,
+        authorized      = authorized,
+        seller_id       = seller_id,
+        days            = days,
+        data            = data,
+        drops           = drops,
+        growth          = growth,
+        stable          = stable,
+        queda_sentence  = queda_sentence,
     )

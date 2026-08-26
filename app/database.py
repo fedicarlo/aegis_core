@@ -2099,11 +2099,32 @@ def get_performance_comparison(seller_id: str, days: int = 30) -> dict:
       qty_prev,    revenue_prev      — período anterior
       qty_delta, revenue_delta       — diferença absoluta (atual - anterior)
       revenue_delta_pct              — variação percentual
+      share_pct_current, share_pct_prev — representatividade no faturamento total de cada período
       stock_current                  — estoque no momento
       has_zero_stock                 — teve ruptura no período atual (stock_history)
       is_paused                      — anúncio pausado no momento
+
+    Campos de confiabilidade do histórico (pra sinalizar quando um período de
+    comparação não tem dado completo em vez de mostrar um número que parece
+    confiável sem ser):
+      history_days_available — dias de histórico de pedidos disponíveis pro seller
+      period_prev_complete   — False se o período "anterior" (now-2N a now-N) cai
+                                fora do histórico disponível (dado incompleto)
+      data_stale_days        — dias desde o pedido mais recente até agora
+      data_is_stale          — True se a sincronização está atrasada (>1 dia sem
+                                pedido novo), o que faz o período "atual" parecer
+                                uma queda que na verdade é sync desatualizada
     """
     conn = get_conn()
+
+    hist_row = conn.execute("""
+        SELECT
+            MIN(date_created) AS history_start,
+            MAX(date_created) AS history_end,
+            CAST(julianday('now') - julianday(substr(MIN(date_created), 1, 19)) AS INTEGER) AS days_available,
+            CAST(julianday('now') - julianday(substr(MAX(date_created), 1, 19)) AS INTEGER) AS stale_days
+        FROM orders WHERE seller_id = ?
+    """, (seller_id,)).fetchone()
 
     rows = conn.execute("""
         SELECT
@@ -2160,9 +2181,10 @@ def get_performance_comparison(seller_id: str, days: int = 30) -> dict:
 
     conn.close()
 
+    total_revenue_current = sum(float(r["revenue_current"] or 0) for r in rows)
+    total_revenue_prev    = sum(float(r["revenue_prev"] or 0) for r in rows)
+
     items = []
-    total_revenue_current = 0.0
-    total_revenue_prev    = 0.0
 
     for r in rows:
         rev_curr = float(r["revenue_current"] or 0)
@@ -2170,8 +2192,8 @@ def get_performance_comparison(seller_id: str, days: int = 30) -> dict:
         qty_curr = int(r["qty_current"] or 0)
         qty_prev = int(r["qty_prev"] or 0)
 
-        total_revenue_current += rev_curr
-        total_revenue_prev    += rev_prev
+        share_pct_current = round(rev_curr / total_revenue_current * 100, 2) if total_revenue_current > 0 else None
+        share_pct_prev     = round(rev_prev / total_revenue_prev * 100, 2) if total_revenue_prev > 0 else None
 
         rev_delta = rev_curr - rev_prev
         rev_delta_pct = None
@@ -2207,6 +2229,8 @@ def get_performance_comparison(seller_id: str, days: int = 30) -> dict:
             "revenue_current":  round(rev_curr, 2),
             "qty_prev":         qty_prev,
             "revenue_prev":     round(rev_prev, 2),
+            "share_pct_current": share_pct_current,
+            "share_pct_prev":   share_pct_prev,
             "qty_delta":        qty_curr - qty_prev,
             "revenue_delta":    round(rev_delta, 2),
             "revenue_delta_pct": rev_delta_pct,
@@ -2230,6 +2254,9 @@ def get_performance_comparison(seller_id: str, days: int = 30) -> dict:
     for c in by_cause:
         by_cause[c]["total_impact"] = round(by_cause[c]["total_impact"], 2)
 
+    days_available = hist_row["days_available"] if hist_row and hist_row["days_available"] is not None else 0
+    stale_days     = hist_row["stale_days"]     if hist_row and hist_row["stale_days"]     is not None else 0
+
     return {
         "period_days":            days,
         "items":                  items,
@@ -2237,6 +2264,12 @@ def get_performance_comparison(seller_id: str, days: int = 30) -> dict:
         "total_revenue_prev":     round(total_revenue_prev, 2),
         "total_delta":            total_delta,
         "by_cause":               by_cause,
+        "history_start":          hist_row["history_start"] if hist_row else None,
+        "history_end":            hist_row["history_end"]   if hist_row else None,
+        "history_days_available": days_available,
+        "period_prev_complete":   days_available >= (days * 2),
+        "data_stale_days":        stale_days,
+        "data_is_stale":          stale_days > 1,
     }
 
 
