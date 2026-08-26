@@ -1,5 +1,5 @@
 from flask import Blueprint, redirect, render_template, flash, url_for, request
-from app.database import get_all_accounts, get_account_by_name, revoke_account
+from app.database import get_all_accounts, get_account_by_name, revoke_account, get_last_order_sync_hours
 from app.services.meli_auth import get_valid_token
 from app.services.meli_api import get_user_info
 from app.services.analytics import compute_all, summary, get_promo_alerts
@@ -7,6 +7,8 @@ from app.utils.logger import get_logger
 
 log = get_logger("routes.web")
 web_bp = Blueprint("web", __name__)
+
+SYNC_STALE_HOURS = 24  # acima disso, badge de alerta no dashboard de contas
 
 
 # ── Painel principal ──────────────────────────────────────────────────────────
@@ -17,6 +19,27 @@ def index():
     total      = len(accounts)
     authorized = sum(1 for a in accounts if a.get("access_token"))
     pending    = total - authorized
+
+    for account in accounts:
+        if not account.get("access_token"):
+            account["sync_ago_str"] = None
+            account["sync_stale"] = False
+            continue
+        # baseado em pedidos, não em items — items.updated_at fica "fresco"
+        # mesmo quando só a etapa de pedidos da coleta falha (ver VIVALEVE:
+        # catálogo sincronizava normalmente enquanto pedidos ficou 12 dias parado)
+        hours_ago = get_last_order_sync_hours(account["seller_id"])
+        if hours_ago is None:
+            account["sync_ago_str"] = "nunca sincronizada"
+            account["sync_stale"] = True
+        else:
+            if hours_ago < 1:
+                account["sync_ago_str"] = f"{int(hours_ago * 60)}min atrás"
+            elif hours_ago < 24:
+                account["sync_ago_str"] = f"{hours_ago:.0f}h atrás"
+            else:
+                account["sync_ago_str"] = f"{hours_ago / 24:.1f}d atrás"
+            account["sync_stale"] = hours_ago > SYNC_STALE_HOURS
 
     return render_template(
         "index.html",

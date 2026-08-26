@@ -351,6 +351,25 @@ def get_last_updated(seller_id: str):
     return row['ts'] if row else None
 
 
+def get_last_order_sync_hours(seller_id: str) -> float | None:
+    """
+    Horas desde o pedido mais recente sincronizado (MAX(orders.date_created)).
+
+    Existe separado de get_last_updated de propósito: o coleta atualiza
+    items.updated_at mesmo quando a etapa de pedidos falha ou é pulada (ex:
+    catálogo/estoque sincronizam ok, pedidos trava no meio) — então items
+    pode parecer "fresco" enquanto pedidos está parado há dias. Pra alertar
+    de sync atrasada de verdade, o sinal certo é o de pedidos, não de items.
+    """
+    conn = get_conn()
+    row = conn.execute("""
+        SELECT (julianday('now') - julianday(substr(MAX(date_created), 1, 19))) * 24 AS hours_since
+        FROM orders WHERE seller_id = ?
+    """, (seller_id,)).fetchone()
+    conn.close()
+    return float(row["hours_since"]) if row and row["hours_since"] is not None else None
+
+
 def get_recent_price_changes(seller_id: str, days: int = 7) -> list:
     """Returns recent price changes from price_history (if table exists)."""
     conn = get_conn()

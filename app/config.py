@@ -30,6 +30,12 @@ MELI_API_URL   = "https://api.mercadolibre.com"
 
 DB_PATH = os.getenv("DB_PATH", "aegis.db")
 
+# Sync automática (scheduler). Desligada por padrão — precisa ser ligada
+# explicitamente via env var (ex: Railway) pra não disparar chamadas reais
+# à API do ML sempre que alguém rodar o app localmente.
+AUTO_SYNC_ENABLED        = os.getenv("AUTO_SYNC_ENABLED", "false").lower() == "true"
+AUTO_SYNC_INTERVAL_HOURS = int(os.getenv("AUTO_SYNC_INTERVAL_HOURS", "6"))
+
 ACCOUNTS = [
     "Maximus",
     "Querencia",

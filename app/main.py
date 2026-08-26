@@ -81,6 +81,9 @@ def create_app():
         init_nfe_tables()
         init_diagnostico_tables()
 
+        from app.services.scheduler import start_scheduler
+        start_scheduler()
+
     return app
 
 
