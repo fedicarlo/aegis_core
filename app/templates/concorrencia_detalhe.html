@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AEGIS — {{ produto.nome }} · Concorrência</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d0d0d; --surface: #111111; --surface2: #161616; --surface3: #1a1a1a;
+      --border: #1e1e1e; --border2: #2a2a2a;
+      --text: #e0e0e0; --muted: #555555;
+      --orange: #f5a623; --green: #4caf50; --red: #f44336; --yellow: #ffd54f; --blue: #64b5f6;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0 32px; height: 52px;
+      display: flex; align-items: center; gap: 16px;
+      position: sticky; top: 0; z-index: 300;
+    }
+    .logo { font-size: 17px; font-weight: 700; letter-spacing: 4px; color: #fff; text-decoration: none; }
+    .logo span { color: var(--orange); }
+    .header-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; }
+    .header-title b { color: #ccc; text-transform: none; letter-spacing: 0; font-size: 13px; }
+    .header-actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 600; padding: 7px 14px;
+      border-radius: 6px; border: none; cursor: pointer;
+      text-decoration: none; transition: opacity .15s; white-space: nowrap;
+    }
+    .btn:hover { opacity: .8; }
+    .btn-primary { background: var(--orange); color: #000; }
+    .btn-ghost   { background: var(--surface3); color: #777; border: 1px solid var(--border2); }
+    .btn-sm { font-size: 11px; padding: 5px 10px; }
+    .btn-danger { background: #3a1212; color: #ef9a9a; border: 1px solid #5a2020; }
+    .btn-green { background: #1a3a1a; color: var(--green); border: 1px solid #2d5a2d; }
+
+    main { padding: 24px 32px 60px; max-width: 1100px; margin: 0 auto; }
+
+    .flashes { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .flash { padding: 10px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; }
+    .flash.success { background: #1a3a1a; border: 1px solid var(--green); color: #81c784; }
+    .flash.error   { background: #3a1212; border: 1px solid var(--red);   color: #ef9a9a; }
+
+    .produto-hero { margin-bottom: 24px; }
+    .produto-nome { font-size: 22px; font-weight: 700; color: #fff; }
+    .produto-marca { font-size: 12px; color: var(--orange); margin-top: 4px; }
+
+    .section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 12px; margin-top: 28px; }
+    .section-title:first-of-type { margin-top: 0; }
+
+    .box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead tr { background: var(--surface2); border-bottom: 1px solid #222; }
+    th { padding: 9px 12px; text-align: left; font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+    th.num, td.num { text-align: right; }
+    td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    .table-wrap { border-radius: 10px; border: 1px solid var(--border); overflow: hidden; margin-bottom: 16px; }
+
+    .td-id { font-size: 10px; color: #333; font-family: monospace; }
+    .empty { text-align: center; color: #333; padding: 24px; font-size: 12px; }
+
+    /* Busca de itens */
+    .item-search-wrap { position: relative; }
+    input.search {
+      background: var(--surface3); border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 13px;
+      padding: 8px 12px; width: 400px; outline: none;
+    }
+    input.search:focus { border-color: #444; }
+    #searchResults {
+      position: absolute; top: 100%; left: 0; width: 500px; margin-top: 4px;
+      background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px;
+      max-height: 320px; overflow-y: auto; z-index: 50; display: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    }
+    #searchResults.open { display: block; }
+    .search-item { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .search-item:last-child { border-bottom: none; }
+    .search-item:hover { background: #1e1e1e; }
+    .search-item-title { font-size: 12px; color: #ddd; }
+    .search-item-meta { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .search-item.vinculado { opacity: .4; cursor: not-allowed; }
+    .search-empty { padding: 14px; text-align: center; color: #444; font-size: 12px; }
+
+    /* Concorrentes */
+    .conc-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 16px 20px; margin-bottom: 12px;
+    }
+    .conc-card.mudou { border-color: rgba(255,213,79,.5); background: #1a1808; }
+    .conc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .conc-nome { font-size: 14px; font-weight: 700; color: #fff; }
+    .conc-url { font-size: 11px; color: var(--blue); word-break: break-all; }
+    .conc-preco { font-size: 20px; font-weight: 700; color: #fff; text-align: right; }
+    .conc-preco .lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px; }
+    .conc-updated { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+    .price-change-banner {
+      margin-top: 10px; padding: 8px 12px; border-radius: 6px;
+      background: rgba(255,213,79,.1); border: 1px solid rgba(255,213,79,.35);
+      font-size: 12px; color: var(--yellow);
+      display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    }
+
+    .conc-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+    .inline-form { display: none; margin-top: 12px; gap: 8px; align-items: center; }
+    .inline-form.open { display: flex; }
+    .inline-form input {
+      background: var(--surface3); border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 13px;
+      padding: 7px 10px; width: 140px; outline: none;
+    }
+
+    /* Novo concorrente form */
+    .novo-conc-form { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 10px; align-items: end; }
+    .novo-conc-form .field { display: flex; flex-direction: column; gap: 5px; }
+    .novo-conc-form label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    .novo-conc-form input {
+      background: var(--surface3); border: 1px solid var(--border2);
+      border-radius: 6px; color: var(--text); font-size: 13px;
+      padding: 8px 10px; outline: none; width: 100%;
+    }
+    .autofill-hint { font-size: 10px; color: #444; margin-top: 4px; }
+
+    /* Histórico modal */
+    #histModal { display: none; position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,.7); align-items: center; justify-content: center; }
+    #histModal.open { display: flex; }
+    .hist-box { background: var(--surface); border: 1px solid var(--border2); border-radius: 12px; padding: 24px 28px; min-width: 320px; max-width: 420px; }
+    .hist-title { font-size: 13px; font-weight: 700; color: var(--orange); margin-bottom: 16px; }
+    .hist-row { display: flex; justify-content: space-between; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .hist-row:last-child { border-bottom: none; }
+    .hist-date { color: var(--muted); font-size: 11px; }
+    .hist-empty { color: #333; text-align: center; padding: 20px; }
+    .btn-close-modal { margin-top: 18px; width: 100%; background: var(--surface3); border: 1px solid var(--border2); color: var(--muted); border-radius: 6px; padding: 8px; cursor: pointer; font-size: 12px; }
+
+    footer { text-align: center; font-size: 11px; color: #222; padding: 20px; border-top: 1px solid var(--border); margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="{{ url_for('web.index') }}" class="logo">AE<span>G</span>IS</a>
+  <span class="header-title">Concorrência · <b>{{ produto.nome }}</b></span>
+  <div class="header-actions">
+    <a href="{{ url_for('concorrencia.lista') }}" class="btn btn-ghost">← Produtos-referência</a>
+  </div>
+</header>
+
+<main>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flashes">
+      {% for cat, msg in messages %}
+      <div class="flash {{ cat }}">{{ msg }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endwith %}
+
+  <div class="produto-hero">
+    <div class="produto-nome">{{ produto.nome }}</div>
+    {% if produto.marca %}<div class="produto-marca">{{ produto.marca }}</div>{% endif %}
+  </div>
+
+  <!-- ── ITENS NOSSOS VINCULADOS ─────────────────────────────────────────────── -->
+  <div class="section-title">Nossos itens vinculados</div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Conta</th><th>Produto</th><th class="num">Preço</th><th></th></tr></thead>
+      <tbody>
+        {% for it in itens %}
+        <tr>
+          <td>{{ it.account_name or it.seller_id }}</td>
+          <td>
+            {{ it.title or '(item não encontrado no catálogo local)' }}
+            <div class="td-id">{{ it.item_id }}</div>
+          </td>
+          <td class="num">{{ 'R$ %.2f'|format(it.price) if it.price else '—' }}</td>
+          <td>
+            <form method="POST" action="{{ url_for('concorrencia.desvincular', produto_referencia_id=produto.id) }}" style="display:inline">
+              <input type="hidden" name="seller_id" value="{{ it.seller_id }}">
+              <input type="hidden" name="item_id" value="{{ it.item_id }}">
+              <button type="submit" class="btn btn-danger btn-sm"
+                      onclick="return confirm('Desvincular esse item?')">Desvincular</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">Nenhum item nosso vinculado ainda.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="box">
+    <div class="item-search-wrap">
+      <input class="search" id="itemSearch" type="text" placeholder="Buscar item por título, em todas as contas…"
+             oninput="searchItems(this.value)" autocomplete="off">
+      <div id="searchResults"></div>
+    </div>
+  </div>
+
+  <!-- ── CONCORRENTES ─────────────────────────────────────────────────────────── -->
+  <div class="section-title">Concorrentes cadastrados</div>
+
+  {% for c in concorrentes %}
+  <div class="conc-card {{ 'mudou' if c.preco_mudou else '' }}" id="conc-{{ c.id }}">
+    <div class="conc-top">
+      <div>
+        <div class="conc-nome">{{ c.nome_seller or 'Sem nome' }}</div>
+        <a class="conc-url" href="{{ c.url }}" target="_blank" rel="noopener">{{ c.url }}</a>
+        {% if c.last_updated_at %}
+        <div class="conc-updated" id="updated-{{ c.id }}">
+          atualizado em {{ c.last_updated_at | int | timestamp_to_str }}
+        </div>
+        {% endif %}
+      </div>
+      <div class="conc-preco" id="preco-{{ c.id }}">
+        <span class="lbl">preço atual</span>
+        {{ 'R$ %.2f'|format(c.preco_atual) if c.preco_atual is not none else '—' }}
+      </div>
+    </div>
+
+    {% if c.preco_mudou %}
+    <div class="price-change-banner" id="banner-{{ c.id }}">
+      <span>⚠ preço mudou: R$ {{ '%.2f'|format(c.last_viewed_price) }} → R$ {{ '%.2f'|format(c.preco_atual) }}</span>
+      <button class="btn btn-ghost btn-sm" onclick="confirmarCiencia({{ c.id }})">Confirmar ciência</button>
+    </div>
+    {% endif %}
+
+    <div class="conc-actions">
+      <button class="btn btn-ghost btn-sm" onclick="toggleInline({{ c.id }})">Atualizar preço</button>
+      <button class="btn btn-ghost btn-sm" onclick="showHistory({{ c.id }}, '{{ (c.nome_seller or 'concorrente')|replace("'", "") }}')">⏱ Histórico</button>
+    </div>
+
+    <div class="inline-form" id="inline-{{ c.id }}">
+      <input type="number" step="0.01" min="0" id="novoPreco-{{ c.id }}" placeholder="novo preço">
+      <button class="btn btn-primary btn-sm" onclick="salvarPreco({{ c.id }})">Salvar</button>
+      <button class="btn btn-ghost btn-sm" onclick="toggleInline({{ c.id }})">Cancelar</button>
+    </div>
+  </div>
+  {% else %}
+  <div class="box empty">Nenhum concorrente cadastrado ainda pra esse produto.</div>
+  {% endfor %}
+
+  <div class="box">
+    <div class="section-title" style="margin-top:0">+ Adicionar concorrente</div>
+    <form method="POST" action="{{ url_for('concorrencia.add_concorrente', produto_referencia_id=produto.id) }}" class="novo-conc-form" id="novoConcForm">
+      <div class="field">
+        <label>URL do anúncio</label>
+        <input type="text" name="url" id="concUrl" placeholder="https://..." required oninput="clearAutofillHint()">
+      </div>
+      <div class="field">
+        <label>Nome / seller</label>
+        <input type="text" name="nome_seller" id="concNome" placeholder="Nome do concorrente">
+      </div>
+      <div class="field">
+        <label>Preço atual (R$)</label>
+        <input type="number" step="0.01" min="0" name="preco_atual" id="concPreco" placeholder="0,00">
+      </div>
+      <button type="button" class="btn btn-ghost" onclick="tentarPreencher()">Tentar preencher</button>
+    </form>
+    <div class="autofill-hint" id="autofillHint"></div>
+    <div style="margin-top:12px">
+      <button type="submit" form="novoConcForm" class="btn btn-primary">Adicionar concorrente</button>
+    </div>
+  </div>
+
+</main>
+
+<footer>AEGIS · Monitor de Concorrência · {{ produto.nome }}</footer>
+
+<!-- ── HISTORY MODAL ──────────────────────────────────────────────────────── -->
+<div id="histModal" onclick="if(event.target===this)closeHistory()">
+  <div class="hist-box">
+    <div class="hist-title" id="histTitle">Histórico de Preço</div>
+    <div id="histBody"><div class="hist-empty">Carregando…</div></div>
+    <button class="btn-close-modal" onclick="closeHistory()">Fechar</button>
+  </div>
+</div>
+
+<script>
+const PRODUTO_ID = {{ produto.id }};
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function showToast(msg, type = 'success') {
+  const t = document.createElement('div');
+  t.style.cssText = `
+    position:fixed;bottom:24px;right:24px;z-index:999;
+    padding:12px 20px;border-radius:8px;font-size:13px;font-weight:600;
+    max-width:400px;word-break:break-word;box-shadow:0 4px 20px rgba(0,0,0,.6);
+    ${type === 'success' ? 'background:#1a3a1a;color:#81c784;border:1px solid #2d5a2d;' :
+                            'background:#3a1212;color:#ef9a9a;border:1px solid #5a2020;'}
+  `;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+// ── Busca de itens cross-conta ────────────────────────────────────────────────
+let searchTimer = null;
+function searchItems(q) {
+  clearTimeout(searchTimer);
+  const box = document.getElementById('searchResults');
+  if (!q || q.trim().length < 2) { box.classList.remove('open'); return; }
+
+  searchTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`/concorrencia/${PRODUTO_ID}/buscar-itens?q=${encodeURIComponent(q)}`);
+      const items = await res.json();
+      if (!items.length) {
+        box.innerHTML = '<div class="search-empty">Nenhum item encontrado.</div>';
+      } else {
+        box.innerHTML = items.map(it => `
+          <div class="search-item ${it.ja_vinculado ? 'vinculado' : ''}"
+               ${it.ja_vinculado ? '' : `onclick="vincularItem('${it.seller_id}','${it.item_id}')"`}>
+            <div class="search-item-title">${it.title}</div>
+            <div class="search-item-meta">
+              ${it.account_name || it.seller_id} · ${it.item_id}
+              ${it.price ? ' · R$ ' + Number(it.price).toFixed(2) : ''}
+              ${it.ja_vinculado ? ' · já vinculado a "' + it.ja_vinculado + '"' : ''}
+            </div>
+          </div>
+        `).join('');
+      }
+      box.classList.add('open');
+    } catch (e) {
+      box.innerHTML = '<div class="search-empty">Erro na busca.</div>';
+      box.classList.add('open');
+    }
+  }, 300);
+}
+
+function vincularItem(sellerId, itemId) {
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = `/concorrencia/${PRODUTO_ID}/vincular`;
+  form.innerHTML = `
+    <input type="hidden" name="seller_id" value="${sellerId}">
+    <input type="hidden" name="item_id" value="${itemId}">
+  `;
+  document.body.appendChild(form);
+  form.submit();
+}
+
+document.addEventListener('click', (e) => {
+  const wrap = document.querySelector('.item-search-wrap');
+  if (wrap && !wrap.contains(e.target)) document.getElementById('searchResults').classList.remove('open');
+});
+
+// ── Atualizar preço inline ──────────────────────────────────────────────────
+function toggleInline(concorrenteId) {
+  document.getElementById('inline-' + concorrenteId).classList.toggle('open');
+}
+
+async function salvarPreco(concorrenteId) {
+  const input = document.getElementById('novoPreco-' + concorrenteId);
+  const preco = parseFloat(input.value);
+  if (isNaN(preco) || preco < 0) { showToast('Digite um preço válido.', 'error'); return; }
+
+  try {
+    const res = await fetch(`/concorrencia/concorrente/${concorrenteId}/preco`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({preco}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('Preço atualizado.', 'success');
+      window.location.reload();
+    } else {
+      showToast(data.error || 'Erro ao salvar.', 'error');
+    }
+  } catch (e) {
+    showToast('Falha na requisição: ' + e.message, 'error');
+  }
+}
+
+// ── Confirmar ciência ────────────────────────────────────────────────────────
+async function confirmarCiencia(concorrenteId) {
+  try {
+    const res = await fetch(`/concorrencia/concorrente/${concorrenteId}/ciencia`, {method: 'POST'});
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('conc-' + concorrenteId).classList.remove('mudou');
+      const banner = document.getElementById('banner-' + concorrenteId);
+      if (banner) banner.remove();
+    }
+  } catch (e) {
+    showToast('Falha na requisição: ' + e.message, 'error');
+  }
+}
+
+// ── Histórico ────────────────────────────────────────────────────────────────
+async function showHistory(concorrenteId, nome) {
+  document.getElementById('histTitle').textContent = `Histórico — ${nome}`;
+  document.getElementById('histBody').innerHTML = '<div class="hist-empty">Carregando…</div>';
+  document.getElementById('histModal').classList.add('open');
+
+  try {
+    const res = await fetch(`/concorrencia/concorrente/${concorrenteId}/historico`);
+    const data = await res.json();
+    if (!data.length) {
+      document.getElementById('histBody').innerHTML = '<div class="hist-empty">Nenhuma alteração registrada.</div>';
+      return;
+    }
+    document.getElementById('histBody').innerHTML = data.map(h => `
+      <div class="hist-row">
+        <span class="hist-date">${new Date(h.recorded_at * 1000).toLocaleString('pt-BR')}</span>
+        <span style="font-weight:700">R$ ${Number(h.preco).toFixed(2)}</span>
+      </div>
+    `).join('');
+  } catch (e) {
+    document.getElementById('histBody').innerHTML = '<div class="hist-empty">Erro ao carregar histórico.</div>';
+  }
+}
+
+function closeHistory() {
+  document.getElementById('histModal').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHistory(); });
+
+// ── Tentar preencher (best-effort) ───────────────────────────────────────────
+function clearAutofillHint() {
+  document.getElementById('autofillHint').textContent = '';
+}
+
+async function tentarPreencher() {
+  const url = document.getElementById('concUrl').value.trim();
+  const hint = document.getElementById('autofillHint');
+  if (!url) { hint.textContent = 'Cole a URL do anúncio primeiro.'; return; }
+
+  hint.textContent = 'Buscando…';
+  try {
+    const res = await fetch(`/concorrencia/extrair-mlb?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    if (data.ok) {
+      if (data.title) document.getElementById('concNome').value = data.seller_nickname || data.title.slice(0, 60);
+      if (data.price) document.getElementById('concPreco').value = data.price;
+      hint.textContent = '✓ preenchido a partir do link — confira antes de salvar.';
+    } else {
+      hint.textContent = 'Não consegui puxar dados desse link — preenche manualmente.';
+    }
+  } catch (e) {
+    hint.textContent = 'Não consegui puxar dados desse link — preenche manualmente.';
+  }
+}
+</script>
+
+</body>
+</html>

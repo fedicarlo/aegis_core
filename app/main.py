@@ -13,6 +13,7 @@ from app.routes.simulador import simulador_bp
 from app.routes.financeiro import financeiro_bp
 from app.routes.analise_queda import analise_queda_bp
 from app.routes.stock import stock_bp
+from app.routes.concorrencia import concorrencia_bp
 
 
 def _num_br(value) -> str:
@@ -27,6 +28,15 @@ def _num_br(value) -> str:
 def _brl(value) -> str:
     """Formata como R$ XX.XXX,XX"""
     return f"R$ {_num_br(value)}"
+
+
+def _timestamp_to_str(ts) -> str:
+    """Formata timestamp unix como dd/mm HH:MM."""
+    import datetime as _dt
+    try:
+        return _dt.datetime.fromtimestamp(int(ts)).strftime("%d/%m %H:%M")
+    except (TypeError, ValueError):
+        return "—"
 
 
 PUBLIC_ENDPOINTS = {"auth.authorize", "auth.callback", "auth.login", "static"}
@@ -48,6 +58,7 @@ def create_app():
 
     app.jinja_env.filters["num_br"] = _num_br
     app.jinja_env.filters["brl"]    = _brl
+    app.jinja_env.filters["timestamp_to_str"] = _timestamp_to_str
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(web_bp)
@@ -60,6 +71,7 @@ def create_app():
     app.register_blueprint(financeiro_bp)
     app.register_blueprint(analise_queda_bp)
     app.register_blueprint(stock_bp)
+    app.register_blueprint(concorrencia_bp)
 
     with app.app_context():
         from app.database import (
@@ -67,7 +79,7 @@ def create_app():
             init_promotions_table, init_history_tables,
             init_meli_finance_tables, init_mp_tables,
             init_mp_other_movements_table, init_stock_own_tables,
-            init_nfe_tables, init_diagnostico_tables,
+            init_nfe_tables, init_diagnostico_tables, init_concorrencia_tables,
         )
         init_db()
         init_data_tables()
@@ -80,6 +92,7 @@ def create_app():
         init_stock_own_tables()
         init_nfe_tables()
         init_diagnostico_tables()
+        init_concorrencia_tables()
 
         from app.services.scheduler import start_scheduler
         start_scheduler()

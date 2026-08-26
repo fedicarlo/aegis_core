@@ -1,3 +1,4 @@
+import re
 import requests
 from app.config import MELI_API_URL
 from app.utils.logger import get_logger
@@ -770,3 +771,34 @@ def get_item_visits(token: str, item_id: str, days: int = 30) -> dict:
         if e.response.status_code in (404, 403):
             return {}
         raise
+
+
+# ── Monitor de Concorrência — busca de item pra autopreenchimento ────────────────
+# Nota: a API do ML bloqueia GET /items/{id} sem token (403
+# PA_UNAUTHORIZED_RESULT_FROM_POLICIES, confirmado testando direto) mesmo pra
+# item de outro seller — não existe mais endpoint público anônimo de fato. Por
+# isso essa busca usa um token de QUALQUER uma das nossas contas autorizadas
+# (é leitura de catálogo público, não precisa ser o dono do anúncio).
+
+_MLB_RE = re.compile(r"MLB-?(\d+)")
+
+
+def extract_mlb_id(url_or_text: str) -> str | None:
+    """Extrai o código MLB de uma URL de anúncio do Mercado Livre, se houver."""
+    m = _MLB_RE.search(url_or_text or "")
+    return f"MLB{m.group(1)}" if m else None
+
+
+def get_public_item_info(item_id: str, token: str) -> dict:
+    """
+    Busca dados básicos de um item (de qualquer seller) usando um token de uma
+    das nossas contas — usada só pro botão 'tentar preencher' do Monitor de
+    Concorrência. Best-effort: qualquer falha (item de outro site, formato
+    inesperado, rede, token inválido) retorna {} em vez de propagar erro,
+    porque o preenchimento manual sempre continua disponível.
+    """
+    try:
+        data = _get(f"{MELI_API_URL}/items/{item_id}", token)
+        return {"title": data.get("title"), "price": data.get("price")}
+    except Exception:
+        return {}

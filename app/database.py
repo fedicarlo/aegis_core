@@ -1176,6 +1176,295 @@ def clear_product_status_override(seller_id: str, item_id: str, variation_id: st
     conn.close()
 
 
+# ── Monitor de Concorrência ────────────────────────────────────────────────────
+# Entidades compartilhadas entre todas as contas (não escopadas por seller_id) —
+# um produto-referência pode agregar item_id de vários dos nossos sellers, e os
+# concorrentes cadastrados são do produto, não de uma conta específica.
+
+def init_concorrencia_tables():
+    """Cria as tabelas do Monitor de Concorrência e estende marcas_preco_controlado
+    com o flag monitora_pma (sem duplicar a estrutura existente)."""
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS produtos_referencia (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome        TEXT NOT NULL,
+            marca       TEXT DEFAULT '',
+            created_at  INTEGER NOT NULL,
+            updated_at  INTEGER
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS produto_referencia_items (
+            id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+            produto_referencia_id  INTEGER NOT NULL REFERENCES produtos_referencia(id),
+            seller_id              TEXT NOT NULL,
+            item_id                TEXT NOT NULL,
+            created_at             INTEGER NOT NULL,
+            UNIQUE(seller_id, item_id)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS concorrentes (
+            id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+            produto_referencia_id  INTEGER NOT NULL REFERENCES produtos_referencia(id),
+            url                    TEXT NOT NULL,
+            nome_seller            TEXT DEFAULT '',
+            preco_atual            REAL,
+            last_updated_at        INTEGER,
+            last_viewed_price      REAL,
+            created_at             INTEGER NOT NULL
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS concorrente_price_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            concorrente_id  INTEGER NOT NULL REFERENCES concorrentes(id),
+            preco           REAL NOT NULL,
+            recorded_at     INTEGER NOT NULL
+        )
+    """)
+
+    existing_mpc = {row[1] for row in c.execute("PRAGMA table_info(marcas_preco_controlado)").fetchall()}
+    if "monitora_pma" not in existing_mpc:
+        c.execute("ALTER TABLE marcas_preco_controlado ADD COLUMN monitora_pma INTEGER DEFAULT 0")
+
+    conn.commit()
+    conn.close()
+
+
+# ── Produtos-referência ────────────────────────────────────────────────────────
+
+def create_produto_referencia(nome: str, marca: str = "") -> int:
+    conn = get_conn()
+    now = int(time.time())
+    cur = conn.execute(
+        "INSERT INTO produtos_referencia (nome, marca, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        (nome, marca, now, now)
+    )
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def get_produtos_referencia(search: str = "") -> list:
+    conn = get_conn()
+    if search:
+        rows = conn.execute("""
+            SELECT pr.*,
+                   (SELECT COUNT(*) FROM produto_referencia_items WHERE produto_referencia_id = pr.id) AS n_itens,
+                   (SELECT COUNT(*) FROM concorrentes WHERE produto_referencia_id = pr.id) AS n_concorrentes
+            FROM produtos_referencia pr
+            WHERE pr.nome LIKE ? OR pr.marca LIKE ?
+            ORDER BY pr.nome
+        """, (f"%{search}%", f"%{search}%")).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT pr.*,
+                   (SELECT COUNT(*) FROM produto_referencia_items WHERE produto_referencia_id = pr.id) AS n_itens,
+                   (SELECT COUNT(*) FROM concorrentes WHERE produto_referencia_id = pr.id) AS n_concorrentes
+            FROM produtos_referencia pr
+            ORDER BY pr.nome
+        """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_produto_referencia(produto_referencia_id: int):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM produtos_referencia WHERE id = ?", (produto_referencia_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_produto_referencia_for_item(seller_id: str, item_id: str):
+    """Retorna (produto_referencia_id, nome) se esse item já está vinculado a
+    algum produto-referência (um item só pode pertencer a um), senão None."""
+    conn = get_conn()
+    row = conn.execute("""
+        SELECT pr.id, pr.nome FROM produto_referencia_items pri
+        JOIN produtos_referencia pr ON pr.id = pri.produto_referencia_id
+        WHERE pri.seller_id = ? AND pri.item_id = ?
+    """, (seller_id, item_id)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def link_item_to_produto_referencia(produto_referencia_id: int, seller_id: str, item_id: str):
+    conn = get_conn()
+    conn.execute("""
+        INSERT OR IGNORE INTO produto_referencia_items (produto_referencia_id, seller_id, item_id, created_at)
+        VALUES (?, ?, ?, ?)
+    """, (produto_referencia_id, seller_id, item_id, int(time.time())))
+    conn.commit()
+    conn.close()
+
+
+def unlink_item_from_produto_referencia(produto_referencia_id: int, seller_id: str, item_id: str):
+    conn = get_conn()
+    conn.execute(
+        "DELETE FROM produto_referencia_items WHERE produto_referencia_id=? AND seller_id=? AND item_id=?",
+        (produto_referencia_id, seller_id, item_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_items_for_produto_referencia(produto_referencia_id: int) -> list:
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT pri.seller_id, pri.item_id, i.title, i.price, i.status, a.name AS account_name
+        FROM produto_referencia_items pri
+        LEFT JOIN items i ON i.id = pri.item_id AND i.seller_id = pri.seller_id
+        LEFT JOIN accounts a ON a.seller_id = pri.seller_id
+        WHERE pri.produto_referencia_id = ?
+        ORDER BY a.name
+    """, (produto_referencia_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def search_items_cross_account(query: str, limit: int = 25) -> list:
+    """Busca item por título em TODAS as contas — usado pra achar o item_id
+    certo na hora de vincular um produto-referência (não existe busca global
+    de item em nenhum outro lugar do sistema)."""
+    if not query or len(query.strip()) < 2:
+        return []
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT i.seller_id, i.id AS item_id, i.title, i.price, a.name AS account_name
+        FROM items i
+        LEFT JOIN accounts a ON a.seller_id = i.seller_id
+        WHERE i.title LIKE ?
+        ORDER BY a.name
+        LIMIT ?
+    """, (f"%{query.strip()}%", limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Concorrentes ────────────────────────────────────────────────────────────────
+
+def create_concorrente(produto_referencia_id: int, url: str, nome_seller: str, preco_atual) -> int:
+    conn = get_conn()
+    now = int(time.time())
+    preco = float(preco_atual) if preco_atual not in (None, "") else None
+    cur = conn.execute("""
+        INSERT INTO concorrentes
+            (produto_referencia_id, url, nome_seller, preco_atual, last_updated_at, last_viewed_price, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (produto_referencia_id, url, nome_seller, preco, now if preco is not None else None, preco, now))
+    new_id = cur.lastrowid
+    if preco is not None:
+        conn.execute(
+            "INSERT INTO concorrente_price_history (concorrente_id, preco, recorded_at) VALUES (?, ?, ?)",
+            (new_id, preco, now)
+        )
+    conn.commit()
+    conn.close()
+    return new_id
+
+
+def get_concorrentes_for_produto(produto_referencia_id: int) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM concorrentes WHERE produto_referencia_id = ? ORDER BY nome_seller",
+        (produto_referencia_id,)
+    ).fetchall()
+    conn.close()
+    items = [dict(r) for r in rows]
+    for it in items:
+        preco = it["preco_atual"]
+        vis = it["last_viewed_price"]
+        it["preco_mudou"] = preco is not None and vis is not None and abs(preco - vis) > 0.001
+    return items
+
+
+def get_concorrente(concorrente_id: int):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM concorrentes WHERE id = ?", (concorrente_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_concorrente_preco(concorrente_id: int, novo_preco: float):
+    conn = get_conn()
+    now = int(time.time())
+    conn.execute(
+        "UPDATE concorrentes SET preco_atual = ?, last_updated_at = ? WHERE id = ?",
+        (novo_preco, now, concorrente_id)
+    )
+    conn.execute(
+        "INSERT INTO concorrente_price_history (concorrente_id, preco, recorded_at) VALUES (?, ?, ?)",
+        (concorrente_id, novo_preco, now)
+    )
+    conn.commit()
+    conn.close()
+
+
+def confirmar_ciencia_concorrente(concorrente_id: int):
+    """Marca o preço atual como 'visto' — some o destaque de 'preço mudou'."""
+    conn = get_conn()
+    row = conn.execute("SELECT preco_atual FROM concorrentes WHERE id = ?", (concorrente_id,)).fetchone()
+    if row:
+        conn.execute(
+            "UPDATE concorrentes SET last_viewed_price = ? WHERE id = ?",
+            (row["preco_atual"], concorrente_id)
+        )
+        conn.commit()
+    conn.close()
+
+
+def get_concorrente_price_history(concorrente_id: int) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT preco, recorded_at FROM concorrente_price_history WHERE concorrente_id = ? ORDER BY recorded_at DESC",
+        (concorrente_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Marcas monitoradas (PMA) ─────────────────────────────────────────────────────
+
+def get_marcas_monitoraveis() -> list:
+    """Marcas cadastradas em marcas_preco_controlado, deduplicadas por nome
+    normalizado (a tabela é por seller, mas monitora_pma é tratado como
+    política de marca — se qualquer linha estiver ligada, a marca conta como
+    monitorada em todo o sistema)."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT marca_normalizada, MAX(marca_display) AS marca_display,
+               MAX(monitora_pma) AS monitora_pma, COUNT(*) AS n_contas
+        FROM marcas_preco_controlado
+        GROUP BY marca_normalizada
+        ORDER BY marca_display
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def set_marca_monitora_pma(marca_normalizada: str, value: bool):
+    """Liga/desliga monitora_pma em TODAS as linhas dessa marca (todas as
+    contas), mantendo o flag consistente já que é tratado como política de
+    marca, não de conta."""
+    conn = get_conn()
+    conn.execute(
+        "UPDATE marcas_preco_controlado SET monitora_pma = ? WHERE marca_normalizada = ?",
+        (1 if value else 0, marca_normalizada)
+    )
+    conn.commit()
+    conn.close()
+
+
 # ── Promoções ─────────────────────────────────────────────────────────────────
 
 def init_promotions_table():
