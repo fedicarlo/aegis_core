@@ -222,6 +222,7 @@
     </button>
     <a href="{{ url_for('web.dashboard', account=account.name) }}" class="btn btn-ghost">← Dashboard</a>
     <a href="{{ url_for('costs.apuracao', seller_id=seller_id) }}"  class="btn btn-ghost">Apuração</a>
+    <a href="{{ url_for('costs.diagnostico', seller_id=seller_id) }}" class="btn btn-ghost">Diagnóstico</a>
     <a href="{{ url_for('costs.conciliacao_nfe', seller_id=seller_id) }}" class="btn btn-ghost">Conciliação NF-e</a>
     <a href="{{ url_for('stock.estoque', seller_id=seller_id) }}" class="btn btn-ghost">Estoque</a>
     <a href="{{ url_for('costs.template_costs', seller_id=seller_id) }}" class="btn btn-ghost">Template .xlsx</a>

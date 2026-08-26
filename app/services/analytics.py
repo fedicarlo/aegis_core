@@ -1420,3 +1420,45 @@ def compute_product_diagnostics(seller_id: str, days: int = DIAGNOSTICO_JANELA_P
         "days":          days,
         "threshold_pct": threshold_pct,
     }
+
+
+def summarize_diagnostico_view(rows: list) -> dict:
+    """
+    KPIs a partir de linhas já persistidas em product_status (via get_product_diagnostics_view).
+    Usa o status efetivo (override manual quando presente, senão o computado).
+
+    - weighted_margin_pct: margem ponderada por receita (lucro total / receita total),
+      não é média simples entre produtos.
+    - risk_pct: % da receita total classificada em saída planejada + descontinuar.
+    """
+    total_revenue = sum(float(r["receita_bruta"] or 0) for r in rows)
+
+    margin_rows = [r for r in rows if r["margem_pct"] is not None]
+    receita_com_margem = sum(float(r["receita_bruta"] or 0) for r in margin_rows)
+    lucro_total = sum(
+        float(r["margem_pct"]) / 100 * float(r["receita_bruta"] or 0) for r in margin_rows
+    )
+    weighted_margin_pct = (
+        round(lucro_total / receita_com_margem * 100, 1) if receita_com_margem > 0 else None
+    )
+
+    by_status: dict[str, int] = {}
+    risk_revenue = 0.0
+    for r in rows:
+        status = r["override_status"] or r["computed_status"]
+        by_status[status] = by_status.get(status, 0) + 1
+        if status in ("saida_planejada", "descontinuar"):
+            risk_revenue += float(r["receita_bruta"] or 0)
+
+    risk_pct = round(risk_revenue / total_revenue * 100, 1) if total_revenue > 0 else 0.0
+    computed_at = max((r["computed_at"] for r in rows), default=None)
+
+    return {
+        "total_revenue":       round(total_revenue, 2),
+        "weighted_margin_pct": weighted_margin_pct,
+        "risk_revenue":        round(risk_revenue, 2),
+        "risk_pct":            risk_pct,
+        "by_status":           by_status,
+        "computed_at":         computed_at,
+        "total_items":         len(rows),
+    }

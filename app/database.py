@@ -1022,6 +1022,9 @@ def init_diagnostico_tables():
             variation_id     TEXT NOT NULL DEFAULT '',
             computed_status  TEXT NOT NULL,
             computed_reason  TEXT DEFAULT '',
+            margem_pct       REAL,
+            share_pct        REAL,
+            receita_bruta    REAL,
             override_status  TEXT,
             override_reason  TEXT,
             computed_at      INTEGER NOT NULL,
@@ -1030,6 +1033,11 @@ def init_diagnostico_tables():
             UNIQUE(seller_id, item_id, variation_id)
         )
     """)
+
+    existing_ps = {row[1] for row in c.execute("PRAGMA table_info(product_status)").fetchall()}
+    for col in ("margem_pct", "share_pct", "receita_bruta"):
+        if col not in existing_ps:
+            c.execute(f"ALTER TABLE product_status ADD COLUMN {col} REAL")
 
     conn.commit()
     conn.close()
@@ -1076,19 +1084,25 @@ def get_marcas_controladas(seller_id: str) -> list:
 def save_product_diagnostics(seller_id: str, diagnostics: list):
     """Persiste o status computado em product_status, preservando override manual
     existente (override_status/override_reason não são tocados aqui).
-    diagnostics: lista de {item_id, variation_id, status, motivo}."""
+    diagnostics: lista de {item_id, variation_id, status, motivo, margem_pct, share_pct, receita_bruta}."""
     conn = get_conn()
     now = int(time.time())
     for d in diagnostics:
         vid = d.get("variation_id") or ""
         conn.execute("""
-            INSERT INTO product_status (seller_id, item_id, variation_id, computed_status, computed_reason, computed_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO product_status
+                (seller_id, item_id, variation_id, computed_status, computed_reason,
+                 margem_pct, share_pct, receita_bruta, computed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(seller_id, item_id, variation_id) DO UPDATE SET
                 computed_status = excluded.computed_status,
                 computed_reason = excluded.computed_reason,
-                computed_at = excluded.computed_at
-        """, (seller_id, d["item_id"], vid, d["status"], d["motivo"], now))
+                margem_pct      = excluded.margem_pct,
+                share_pct       = excluded.share_pct,
+                receita_bruta   = excluded.receita_bruta,
+                computed_at     = excluded.computed_at
+        """, (seller_id, d["item_id"], vid, d["status"], d["motivo"],
+              d.get("margem_pct"), d.get("share_pct"), d.get("receita_bruta"), now))
     conn.commit()
     conn.close()
 
@@ -1102,6 +1116,23 @@ def get_product_status(seller_id: str) -> list:
     return [dict(r) for r in rows]
 
 
+def get_product_diagnostics_view(seller_id: str) -> list:
+    """product_status persistido, com título (items) e marca (product_costs) pra exibição.
+    Não recalcula nada — reflete o último 'Recalcular diagnóstico' rodado."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT ps.*, i.title AS title, pc.marca AS marca
+        FROM product_status ps
+        LEFT JOIN items i ON i.id = ps.item_id
+        LEFT JOIN product_costs pc
+            ON pc.item_id = ps.item_id AND pc.seller_id = ps.seller_id AND pc.variation_id = ps.variation_id
+        WHERE ps.seller_id = ?
+        ORDER BY ps.receita_bruta DESC
+    """, (seller_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def set_product_status_override(seller_id: str, item_id: str, variation_id: str,
                                  override_status: str, override_reason: str, override_by: str = ""):
     conn = get_conn()
@@ -1111,6 +1142,17 @@ def set_product_status_override(seller_id: str, item_id: str, variation_id: str,
         SET override_status = ?, override_reason = ?, override_at = ?, override_by = ?
         WHERE seller_id = ? AND item_id = ? AND variation_id = ?
     """, (override_status, override_reason, now, override_by, seller_id, item_id, variation_id or ""))
+    conn.commit()
+    conn.close()
+
+
+def clear_product_status_override(seller_id: str, item_id: str, variation_id: str):
+    conn = get_conn()
+    conn.execute("""
+        UPDATE product_status
+        SET override_status = NULL, override_reason = NULL, override_at = NULL, override_by = NULL
+        WHERE seller_id = ? AND item_id = ? AND variation_id = ?
+    """, (seller_id, item_id, variation_id or ""))
     conn.commit()
     conn.close()
 

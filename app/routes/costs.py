@@ -1,5 +1,6 @@
 import io
 import json
+from datetime import datetime
 from flask import (
     Blueprint, render_template, redirect, url_for,
     flash, request, send_file, jsonify,
@@ -11,6 +12,8 @@ from app.database import (
     init_nfe_tables, save_nfe_document, save_nfe_items,
     auto_reconcile_nfe_items, get_pending_nfe_items, reconcile_nfe_item,
     init_ml_fee_cache_table, get_cached_ml_fee, save_ml_fee_cache, update_ml_fee_rate,
+    init_diagnostico_tables, get_product_diagnostics_view, save_product_diagnostics,
+    set_product_status_override, clear_product_status_override,
 )
 from app.services.nfe_parser import parse_nfe_xml, NFeParseError
 from app.services.meli_api import get_listing_fee
@@ -644,3 +647,101 @@ def apuracao(seller_id):
         days      = days,
         margin    = margin,
     )
+
+
+# ── Diagnóstico de conta ────────────────────────────────────────────────────
+
+_DIAG_STATUS_VALIDOS = {"manter", "saida_planejada", "descontinuar", "fora_regua", "sem_dado_suficiente"}
+_DIAG_STATUS_LABELS = {
+    "manter":              "Manter",
+    "saida_planejada":     "Saída planejada",
+    "descontinuar":        "Descontinuar",
+    "fora_regua":          "Fora da régua",
+    "sem_dado_suficiente": "Sem dado suficiente",
+}
+
+
+@costs_bp.route("/diagnostico/<seller_id>")
+def diagnostico(seller_id):
+    account = _require_seller(seller_id)
+    init_diagnostico_tables()
+    if not account:
+        flash("Conta não encontrada.", "error")
+        return redirect(url_for("web.index"))
+
+    from app.services.analytics import summarize_diagnostico_view
+
+    rows = get_product_diagnostics_view(seller_id)
+    summary = summarize_diagnostico_view(rows)
+
+    computed_at_str = None
+    if summary["computed_at"]:
+        computed_at_str = datetime.fromtimestamp(summary["computed_at"]).strftime("%d/%m/%Y %H:%M")
+
+    return render_template(
+        "diagnostico.html",
+        account          = account,
+        seller_id        = seller_id,
+        rows             = rows,
+        summary          = summary,
+        computed_at_str  = computed_at_str,
+        report_date_str  = datetime.now().strftime("%d/%m/%Y"),
+        status_labels    = _DIAG_STATUS_LABELS,
+    )
+
+
+@costs_bp.route("/diagnostico/<seller_id>/recalcular", methods=["POST"])
+def diagnostico_recalcular(seller_id):
+    account = _require_seller(seller_id)
+    if not account:
+        return jsonify(ok=False, error="Conta não encontrada."), 404
+
+    from app.services.analytics import compute_product_diagnostics
+
+    result = compute_product_diagnostics(seller_id, days=90)
+    payload = [{
+        "item_id":       it["id"],
+        "variation_id":  "",
+        "status":        it["status"],
+        "motivo":        it["motivo"],
+        "margem_pct":    it["margem_pct"],
+        "share_pct":     it["share_pct"],
+        "receita_bruta": it["receita_bruta"],
+    } for it in result["items"]]
+    save_product_diagnostics(seller_id, payload)
+
+    return jsonify(ok=True, by_status=result["by_status"], total=len(payload),
+                    computed_at=datetime.now().strftime("%d/%m/%Y %H:%M"))
+
+
+@costs_bp.route("/diagnostico/<seller_id>/override/<item_id>", methods=["POST"])
+def diagnostico_override(seller_id, item_id):
+    account = _require_seller(seller_id)
+    if not account:
+        return jsonify(ok=False, error="Conta não encontrada."), 404
+
+    data         = request.get_json(silent=True) or {}
+    status       = (data.get("status") or "").strip()
+    motivo       = (data.get("motivo") or "").strip()
+    variation_id = (data.get("variation_id") or "").strip()
+
+    if status not in _DIAG_STATUS_VALIDOS:
+        return jsonify(ok=False, error="Status inválido."), 400
+    if not motivo:
+        return jsonify(ok=False, error="Justificativa obrigatória pra override manual."), 400
+
+    set_product_status_override(seller_id, item_id, variation_id, status, motivo, override_by="admin")
+    return jsonify(ok=True)
+
+
+@costs_bp.route("/diagnostico/<seller_id>/override/<item_id>/limpar", methods=["POST"])
+def diagnostico_override_clear(seller_id, item_id):
+    account = _require_seller(seller_id)
+    if not account:
+        return jsonify(ok=False, error="Conta não encontrada."), 404
+
+    data         = request.get_json(silent=True) or {}
+    variation_id = (data.get("variation_id") or "").strip()
+
+    clear_product_status_override(seller_id, item_id, variation_id)
+    return jsonify(ok=True)
