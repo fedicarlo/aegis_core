@@ -1265,3 +1265,158 @@ def compute_executive_report(seller_id: str, days: int = 30) -> dict:
         "top_risco":           top_risco,
         "acoes_prioritarias":  acoes,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Diagnóstico de conta (margem + representatividade + marca controlada + status)
+# ─────────────────────────────────────────────────────────────────────────────
+
+DIAGNOSTICO_MARGEM_MINIMA = 10.0   # % — abaixo disso, produto é candidato a saída
+DIAGNOSTICO_JANELA_PADRAO = 90     # dias — janela própria desse módulo, não mexe no
+                                    # padrão de 30d usado em compute_margin pras outras telas
+
+_DIAG_SORT_PRIORITY = {
+    "descontinuar":        0,
+    "saida_planejada":     1,
+    "sem_dado_suficiente": 2,
+    "fora_regua":          3,
+    "manter":              4,
+}
+
+
+def _classify_diagnostico(
+    margem_pct: float | None,
+    share_pct: float,
+    has_cost: bool,
+    qty: int,
+    marca_controlada: bool,
+    cost_source: str,
+    threshold_pct: float,
+    days: int,
+) -> tuple[str, str]:
+    """
+    Retorna (status, motivo).
+
+    Hierarquia de decisão:
+      1. fora_regua           — marca com preço controlado pela indústria (ação é
+                                 qualidade de catálogo/anúncio, não pricing)
+      2. sem_dado_suficiente  — sem venda na janela, sem custo cadastrado, ou custo
+                                 de bonificação pendente de revisão (margem não confiável)
+      3. manter               — margem >= mínima aceitável
+      4. saida_planejada      — margem abaixo do mínimo mas alta representatividade
+                                 no faturamento (vende, não repõe, risco sinalizado)
+      5. descontinuar         — margem abaixo do mínimo e baixa representatividade
+                                 (vende até zerar estoque, sem repor)
+    """
+    if marca_controlada:
+        return (
+            "fora_regua",
+            "marca com preço controlado pela indústria — ação é qualidade de "
+            "catálogo/anúncio, não pricing",
+        )
+
+    if cost_source == "bonificacao":
+        return (
+            "sem_dado_suficiente",
+            "custo de bonificação — revisar antes de classificar por margem",
+        )
+
+    if qty == 0:
+        return "sem_dado_suficiente", f"sem venda nos últimos {days} dias"
+
+    if not has_cost:
+        return "sem_dado_suficiente", "sem custo cadastrado"
+
+    if margem_pct is not None and margem_pct >= DIAGNOSTICO_MARGEM_MINIMA:
+        return "manter", f"margem de {margem_pct:.1f}%"
+
+    if share_pct >= threshold_pct:
+        return (
+            "saida_planejada",
+            f"margem de {margem_pct:.1f}% (mínimo {DIAGNOSTICO_MARGEM_MINIMA:.0f}%), mas "
+            f"representa {share_pct:.1f}% do faturamento (>= {threshold_pct:.1f}%) — "
+            f"vende, não repõe, risco sinalizado",
+        )
+
+    return (
+        "descontinuar",
+        f"margem de {margem_pct:.1f}% (mínimo {DIAGNOSTICO_MARGEM_MINIMA:.0f}%) e "
+        f"representatividade de {share_pct:.1f}% (< {threshold_pct:.1f}%) — vende até "
+        f"zerar estoque, sem repor",
+    )
+
+
+def compute_product_diagnostics(seller_id: str, days: int = DIAGNOSTICO_JANELA_PADRAO) -> dict:
+    """
+    Diagnóstico de conta: classifica cada produto em manter / saída planejada /
+    descontinuar / fora da régua, combinando margem, representatividade em
+    faturamento e marca com preço controlado pela indústria.
+
+    Retorna items (lista com breakdown por produto, ordenada por prioridade de
+    ação) e by_status (contagem por categoria).
+    """
+    from app.database import (
+        get_product_diagnostics_data, get_marcas_controladas,
+        normalize_marca, get_representatividade_threshold,
+    )
+
+    rows = get_product_diagnostics_data(seller_id, days)
+    controlled = {m["marca_normalizada"] for m in get_marcas_controladas(seller_id)}
+    threshold_pct = get_representatividade_threshold(seller_id)
+    total_revenue = sum(float(r["receita_bruta"] or 0) for r in rows)
+
+    items = []
+    for r in rows:
+        receita_bruta = float(r["receita_bruta"] or 0)
+        qty           = int(r["qty"] or 0)
+
+        has_cost      = r["unit_cost"] is not None and float(r["unit_cost"]) > 0
+        unit_cost     = float(r["unit_cost"] or 0)
+        tax_rate      = float(r["tax_rate"] or 0)
+        ml_fee_rate   = float(r["ml_fee_rate"]) if r["ml_fee_rate"] is not None else 0.14
+        shipping_cost = float(r["shipping_cost"] or 0)
+        marca         = r["marca"] or ""
+        cost_source   = r["cost_source"] or "compra"
+
+        comissao_ml     = receita_bruta * ml_fee_rate
+        frete           = qty * shipping_cost
+        receita_liquida = receita_bruta - comissao_ml - frete
+        custo_nf        = qty * unit_cost
+        imposto         = receita_bruta * tax_rate
+        lucro           = receita_liquida - custo_nf - imposto
+        margem_pct      = round(lucro / receita_bruta * 100, 1) if receita_bruta > 0 else None
+        share_pct       = round(receita_bruta / total_revenue * 100, 2) if total_revenue > 0 else 0.0
+        marca_controlada = normalize_marca(marca) in controlled
+
+        status, motivo = _classify_diagnostico(
+            margem_pct, share_pct, has_cost, qty, marca_controlada,
+            cost_source, threshold_pct, days,
+        )
+
+        items.append({
+            "id":               r["id"],
+            "title":            r["title"],
+            "qty":              qty,
+            "receita_bruta":    round(receita_bruta, 2),
+            "margem_pct":       margem_pct,
+            "share_pct":        share_pct,
+            "has_cost":         has_cost,
+            "marca":            marca,
+            "cost_source":      cost_source,
+            "status":           status,
+            "motivo":           motivo,
+        })
+
+    items.sort(key=lambda it: _DIAG_SORT_PRIORITY.get(it["status"], 9))
+
+    by_status: dict[str, int] = {}
+    for it in items:
+        by_status[it["status"]] = by_status.get(it["status"], 0) + 1
+
+    return {
+        "items":         items,
+        "by_status":     by_status,
+        "total_revenue": round(total_revenue, 2),
+        "days":          days,
+        "threshold_pct": threshold_pct,
+    }

@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import time
 from app.config import DB_PATH, ACCOUNTS
@@ -388,24 +389,34 @@ def init_costs_table():
             ml_fee_rate   REAL DEFAULT 0.14,
             shipping_cost REAL DEFAULT 0.0,
             marca         TEXT DEFAULT '',
+            cost_source   TEXT DEFAULT 'compra',
             updated_at    INTEGER,
             UNIQUE(seller_id, item_id, variation_id)
         )
     """)
 
-    # Migrate: add marca column if it doesn't exist yet
+    # Migrate: add marca/cost_source columns if they don't exist yet
     existing = {row[1] for row in c.execute("PRAGMA table_info(product_costs)").fetchall()}
     if "marca" not in existing:
         c.execute("ALTER TABLE product_costs ADD COLUMN marca TEXT DEFAULT ''")
+    if "cost_source" not in existing:
+        # 'compra' | 'bonificacao' | 'outro' — validado em Python, sem CHECK constraint
+        # (mesmo padrão de 'marca': texto livre validado na camada de aplicação)
+        c.execute("ALTER TABLE product_costs ADD COLUMN cost_source TEXT DEFAULT 'compra'")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS seller_defaults (
             seller_id    TEXT PRIMARY KEY,
             tax_rate     REAL DEFAULT 0.0,
             ml_fee_rate  REAL DEFAULT 0.14,
+            representatividade_threshold_pct REAL DEFAULT 3.0,
             updated_at   INTEGER
         )
     """)
+
+    existing_sd = {row[1] for row in c.execute("PRAGMA table_info(seller_defaults)").fetchall()}
+    if "representatividade_threshold_pct" not in existing_sd:
+        c.execute("ALTER TABLE seller_defaults ADD COLUMN representatividade_threshold_pct REAL DEFAULT 3.0")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS cost_history (
@@ -430,8 +441,32 @@ def get_seller_defaults(seller_id: str) -> dict:
     ).fetchone()
     conn.close()
     if row:
-        return dict(row)
-    return {"tax_rate": 0.0, "ml_fee_rate": 0.14}
+        d = dict(row)
+        if d.get("representatividade_threshold_pct") is None:
+            d["representatividade_threshold_pct"] = 3.0
+        return d
+    return {"tax_rate": 0.0, "ml_fee_rate": 0.14, "representatividade_threshold_pct": 3.0}
+
+
+def get_representatividade_threshold(seller_id: str) -> float:
+    """% mínimo de representatividade no faturamento pra um produto de margem baixa
+    entrar em 'saída planejada' em vez de 'descontinuar'. Configurável por seller
+    (contas com portfólio mais concentrado precisam de um corte diferente) — default 3%."""
+    return float(get_seller_defaults(seller_id).get("representatividade_threshold_pct") or 3.0)
+
+
+def save_representatividade_threshold(seller_id: str, pct: float):
+    conn = get_conn()
+    now = int(time.time())
+    conn.execute("INSERT OR IGNORE INTO seller_defaults (seller_id, updated_at) VALUES (?, ?)",
+                 (seller_id, now))
+    conn.execute("""
+        UPDATE seller_defaults
+        SET representatividade_threshold_pct = ?, updated_at = ?
+        WHERE seller_id = ?
+    """, (pct, now, seller_id))
+    conn.commit()
+    conn.close()
 
 
 def save_seller_defaults(seller_id: str, tax_rate: float, ml_fee_rate: float):
@@ -451,7 +486,7 @@ def save_seller_defaults(seller_id: str, tax_rate: float, ml_fee_rate: float):
 def save_cost(seller_id: str, item_id: str, variation_id: str | None,
               unit_cost: float, tax_rate: float,
               ml_fee_rate: float = 0.14, shipping_cost: float = 0.0,
-              marca: str = ""):
+              marca: str = "", cost_source: str = "compra"):
     vid = variation_id or ""
     now = int(time.time())
     conn = get_conn()
@@ -465,14 +500,14 @@ def save_cost(seller_id: str, item_id: str, variation_id: str | None,
 
     conn.execute("""
         INSERT OR IGNORE INTO product_costs
-            (seller_id, item_id, variation_id, unit_cost, tax_rate, ml_fee_rate, shipping_cost, marca, updated_at)
-        VALUES (?, ?, ?, 0, 0, 0.14, 0, '', ?)
+            (seller_id, item_id, variation_id, unit_cost, tax_rate, ml_fee_rate, shipping_cost, marca, cost_source, updated_at)
+        VALUES (?, ?, ?, 0, 0, 0.14, 0, '', 'compra', ?)
     """, (seller_id, item_id, vid, now))
     conn.execute("""
         UPDATE product_costs
-        SET unit_cost = ?, tax_rate = ?, ml_fee_rate = ?, shipping_cost = ?, marca = ?, updated_at = ?
+        SET unit_cost = ?, tax_rate = ?, ml_fee_rate = ?, shipping_cost = ?, marca = ?, cost_source = ?, updated_at = ?
         WHERE seller_id = ? AND item_id = ? AND variation_id = ?
-    """, (unit_cost, tax_rate, ml_fee_rate, shipping_cost, marca, now, seller_id, item_id, vid))
+    """, (unit_cost, tax_rate, ml_fee_rate, shipping_cost, marca, cost_source, now, seller_id, item_id, vid))
 
     # Record history only when unit_cost actually changes
     if old_cost is None or abs(old_cost - unit_cost) > 0.001:
@@ -560,7 +595,7 @@ def update_ml_fee_rate(seller_id: str, item_id: str, variation_id: str, ml_fee_r
     """Atualiza só o ml_fee_rate (via save_cost), preservando unit_cost/tax_rate/shipping_cost/marca atuais."""
     conn = get_conn()
     row = conn.execute(
-        "SELECT unit_cost, tax_rate, shipping_cost, marca FROM product_costs "
+        "SELECT unit_cost, tax_rate, shipping_cost, marca, cost_source FROM product_costs "
         "WHERE seller_id=? AND item_id=? AND variation_id=?",
         (seller_id, item_id, variation_id or "")
     ).fetchone()
@@ -571,8 +606,9 @@ def update_ml_fee_rate(seller_id: str, item_id: str, variation_id: str, ml_fee_r
     tax_rate      = row["tax_rate"]      if row else defaults["tax_rate"]
     shipping_cost = row["shipping_cost"] if row else 0.0
     marca         = row["marca"]         if row else ""
+    cost_source   = row["cost_source"]   if row else "compra"
 
-    save_cost(seller_id, item_id, variation_id, unit_cost, tax_rate, ml_fee_rate, shipping_cost, marca)
+    save_cost(seller_id, item_id, variation_id, unit_cost, tax_rate, ml_fee_rate, shipping_cost, marca, cost_source)
 
 
 def get_items_for_costs(seller_id: str) -> list:
@@ -645,6 +681,47 @@ def get_margin_data(seller_id: str, days: int = 30) -> list:
     return [dict(r) for r in rows]
 
 
+def get_product_diagnostics_data(seller_id: str, days: int = 90) -> list:
+    """
+    Dados brutos pro diagnóstico de conta (margem + representatividade + marca +
+    origem do custo). Ao contrário de get_margin_data, retorna TODOS os itens do
+    seller mesmo sem venda no período — o diagnóstico precisa saber quem não vendeu
+    pra classificar como 'sem_dado_suficiente' em vez de simplesmente ignorar.
+    """
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT
+            i.id,
+            i.title,
+            COALESCE(SUM(CASE
+                WHEN o.status != 'cancelled'
+                 AND datetime(substr(o.date_created, 1, 19))
+                     >= datetime('now', '-' || ? || ' days')
+                THEN o.quantity ELSE 0 END), 0)                    AS qty,
+            COALESCE(SUM(CASE
+                WHEN o.status != 'cancelled'
+                 AND datetime(substr(o.date_created, 1, 19))
+                     >= datetime('now', '-' || ? || ' days')
+                THEN o.quantity * o.price ELSE 0 END), 0)           AS receita_bruta,
+            pc.unit_cost,
+            pc.tax_rate,
+            pc.ml_fee_rate,
+            pc.shipping_cost,
+            pc.marca,
+            pc.cost_source
+        FROM items i
+        LEFT JOIN orders o
+            ON o.item_id = i.id
+        LEFT JOIN product_costs pc
+            ON pc.item_id = i.id AND pc.seller_id = ? AND pc.variation_id = ''
+        WHERE i.seller_id = ?
+        GROUP BY i.id, i.title, pc.unit_cost, pc.tax_rate, pc.ml_fee_rate, pc.shipping_cost, pc.marca, pc.cost_source
+        ORDER BY receita_bruta DESC
+    """, (days, days, seller_id, seller_id)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # ── NF-e (nota fiscal) ────────────────────────────────────────────────────────
 
 def init_nfe_tables():
@@ -676,9 +753,17 @@ def init_nfe_tables():
             valor_unit       REAL,
             item_id          TEXT,
             variation_id     TEXT NOT NULL DEFAULT '',
-            status           TEXT NOT NULL DEFAULT 'pendente'
+            status           TEXT NOT NULL DEFAULT 'pendente',
+            cost_review_needed INTEGER NOT NULL DEFAULT 0,
+            cost_review_reason TEXT DEFAULT ''
         )
     """)
+
+    existing_ni = {row[1] for row in c.execute("PRAGMA table_info(nfe_items)").fetchall()}
+    if "cost_review_needed" not in existing_ni:
+        c.execute("ALTER TABLE nfe_items ADD COLUMN cost_review_needed INTEGER NOT NULL DEFAULT 0")
+    if "cost_review_reason" not in existing_ni:
+        c.execute("ALTER TABLE nfe_items ADD COLUMN cost_review_reason TEXT DEFAULT ''")
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS nfe_product_links (
@@ -772,12 +857,36 @@ def save_nfe_link(seller_id: str, supplier_cnpj: str, cprod: str,
     conn.close()
 
 
-def update_cost_from_nfe(seller_id: str, item_id: str, variation_id: str, new_cost: float):
-    """Atualiza só o unit_cost (via save_cost, que já trata cost_history),
-    preservando tax_rate/ml_fee_rate/shipping_cost/marca atuais do produto."""
+BONIFICACAO_THRESHOLD_PCT = 0.20  # valor_unit abaixo de 20% da média histórica -> suspeita de bonificação
+
+
+def get_avg_historical_cost(seller_id: str, item_id: str, variation_id: str) -> float | None:
+    """Média dos custos anteriores registrados em cost_history pra esse item — usada
+    como baseline pra detectar valor_unit suspeito de bonificação vindo de NF-e.
+    Retorna None se não há histórico ainda (primeiro custo do item, nada pra comparar)."""
+    conn = get_conn()
+    row = conn.execute("""
+        SELECT AVG(new_cost) AS avg_cost FROM cost_history
+        WHERE seller_id=? AND item_id=? AND variation_id=? AND new_cost IS NOT NULL AND new_cost > 0
+    """, (seller_id, item_id, variation_id or "")).fetchone()
+    conn.close()
+    return float(row["avg_cost"]) if row and row["avg_cost"] is not None else None
+
+
+def update_cost_from_nfe(seller_id: str, item_id: str, variation_id: str, new_cost: float,
+                          nfe_item_id: int | None = None):
+    """Atualiza o unit_cost a partir do valor_unit de uma NF-e conciliada (via save_cost,
+    que já trata cost_history), preservando tax_rate/ml_fee_rate/shipping_cost/marca/
+    cost_source atuais do produto.
+
+    Trava anti-bonificação: se o valor_unit vier abaixo de 20% da média histórica de
+    custo já registrada pra esse item, NÃO sobrescreve o custo automaticamente — o
+    vínculo produto↔nota continua válido (status permanece 'conciliado'), só o custo
+    fica marcado pra revisão manual em vez de mascarar a margem com um valor inflado.
+    """
     conn = get_conn()
     row = conn.execute(
-        "SELECT tax_rate, ml_fee_rate, shipping_cost, marca FROM product_costs "
+        "SELECT tax_rate, ml_fee_rate, shipping_cost, marca, cost_source FROM product_costs "
         "WHERE seller_id=? AND item_id=? AND variation_id=?",
         (seller_id, item_id, variation_id or "")
     ).fetchone()
@@ -788,8 +897,32 @@ def update_cost_from_nfe(seller_id: str, item_id: str, variation_id: str, new_co
     ml_fee_rate   = row["ml_fee_rate"]   if row else defaults["ml_fee_rate"]
     shipping_cost = row["shipping_cost"] if row else 0.0
     marca         = row["marca"]         if row else ""
+    cost_source   = row["cost_source"]   if row else "compra"
 
-    save_cost(seller_id, item_id, variation_id, new_cost, tax_rate, ml_fee_rate, shipping_cost, marca)
+    avg_hist = get_avg_historical_cost(seller_id, item_id, variation_id)
+    if avg_hist and new_cost < BONIFICACAO_THRESHOLD_PCT * avg_hist:
+        if nfe_item_id is not None:
+            pct_abaixo = round((1 - new_cost / avg_hist) * 100, 1)
+            reason = (f"valor_unit R$ {new_cost:.2f} está {pct_abaixo}% abaixo da média "
+                      f"histórica de custo (R$ {avg_hist:.2f}) — possível bonificação")
+            conn = get_conn()
+            conn.execute(
+                "UPDATE nfe_items SET cost_review_needed = 1, cost_review_reason = ? WHERE id = ?",
+                (reason, nfe_item_id)
+            )
+            conn.commit()
+            conn.close()
+        return
+
+    save_cost(seller_id, item_id, variation_id, new_cost, tax_rate, ml_fee_rate, shipping_cost, marca, cost_source)
+    if nfe_item_id is not None:
+        conn = get_conn()
+        conn.execute(
+            "UPDATE nfe_items SET cost_review_needed = 0, cost_review_reason = '' WHERE id = ?",
+            (nfe_item_id,)
+        )
+        conn.commit()
+        conn.close()
 
 
 def get_pending_nfe_items(seller_id: str) -> list:
@@ -829,7 +962,7 @@ def reconcile_nfe_item(nfe_item_id: int, seller_id: str, item_id: str, variation
     conn.close()
 
     save_nfe_link(seller_id, ni["supplier_cnpj"], ni["cprod"], item_id, variation_id)
-    update_cost_from_nfe(seller_id, item_id, variation_id, ni["valor_unit"])
+    update_cost_from_nfe(seller_id, item_id, variation_id, ni["valor_unit"], nfe_item_id=nfe_item_id)
 
 
 def auto_reconcile_nfe_items(seller_id: str, nfe_document_id: int) -> int:
@@ -856,9 +989,130 @@ def auto_reconcile_nfe_items(seller_id: str, nfe_document_id: int) -> int:
         """, (link["item_id"], link["variation_id"], r["id"]))
         conn2.commit()
         conn2.close()
-        update_cost_from_nfe(seller_id, link["item_id"], link["variation_id"], r["valor_unit"])
+        update_cost_from_nfe(seller_id, link["item_id"], link["variation_id"], r["valor_unit"], nfe_item_id=r["id"])
         matched += 1
     return matched
+
+
+# ── Diagnóstico de conta (margem + representatividade + marca controlada) ─────
+
+def init_diagnostico_tables():
+    """Cria tabelas de marcas com preço controlado pela indústria e status
+    calculado de produto (manter / saída planejada / descontinuar / fora da régua)."""
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS marcas_preco_controlado (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id          TEXT NOT NULL,
+            marca_normalizada  TEXT NOT NULL,
+            marca_display      TEXT NOT NULL,
+            motivo             TEXT DEFAULT '',
+            created_at         INTEGER NOT NULL,
+            UNIQUE(seller_id, marca_normalizada)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS product_status (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id        TEXT NOT NULL,
+            item_id          TEXT NOT NULL,
+            variation_id     TEXT NOT NULL DEFAULT '',
+            computed_status  TEXT NOT NULL,
+            computed_reason  TEXT DEFAULT '',
+            override_status  TEXT,
+            override_reason  TEXT,
+            computed_at      INTEGER NOT NULL,
+            override_at      INTEGER,
+            override_by      TEXT,
+            UNIQUE(seller_id, item_id, variation_id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def normalize_marca(marca: str) -> str:
+    """Normaliza texto de marca pra matching: trim, lowercase, espaços colapsados.
+    Não resolve typos (ex: 'Maxnutri' vs 'Maxmutri') — só variação de espaço/capitalização."""
+    return re.sub(r"\s+", " ", (marca or "").strip().lower())
+
+
+def save_marca_controlada(seller_id: str, marca_display: str, motivo: str = ""):
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO marcas_preco_controlado (seller_id, marca_normalizada, marca_display, motivo, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(seller_id, marca_normalizada) DO UPDATE SET
+            marca_display = excluded.marca_display, motivo = excluded.motivo
+    """, (seller_id, normalize_marca(marca_display), marca_display, motivo, int(time.time())))
+    conn.commit()
+    conn.close()
+
+
+def remove_marca_controlada(seller_id: str, marca: str):
+    conn = get_conn()
+    conn.execute(
+        "DELETE FROM marcas_preco_controlado WHERE seller_id=? AND marca_normalizada=?",
+        (seller_id, normalize_marca(marca))
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_marcas_controladas(seller_id: str) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT marca_normalizada, marca_display, motivo FROM marcas_preco_controlado WHERE seller_id=?",
+        (seller_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def save_product_diagnostics(seller_id: str, diagnostics: list):
+    """Persiste o status computado em product_status, preservando override manual
+    existente (override_status/override_reason não são tocados aqui).
+    diagnostics: lista de {item_id, variation_id, status, motivo}."""
+    conn = get_conn()
+    now = int(time.time())
+    for d in diagnostics:
+        vid = d.get("variation_id") or ""
+        conn.execute("""
+            INSERT INTO product_status (seller_id, item_id, variation_id, computed_status, computed_reason, computed_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(seller_id, item_id, variation_id) DO UPDATE SET
+                computed_status = excluded.computed_status,
+                computed_reason = excluded.computed_reason,
+                computed_at = excluded.computed_at
+        """, (seller_id, d["item_id"], vid, d["status"], d["motivo"], now))
+    conn.commit()
+    conn.close()
+
+
+def get_product_status(seller_id: str) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM product_status WHERE seller_id=?", (seller_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def set_product_status_override(seller_id: str, item_id: str, variation_id: str,
+                                 override_status: str, override_reason: str, override_by: str = ""):
+    conn = get_conn()
+    now = int(time.time())
+    conn.execute("""
+        UPDATE product_status
+        SET override_status = ?, override_reason = ?, override_at = ?, override_by = ?
+        WHERE seller_id = ? AND item_id = ? AND variation_id = ?
+    """, (override_status, override_reason, now, override_by, seller_id, item_id, variation_id or ""))
+    conn.commit()
+    conn.close()
 
 
 # ── Promoções ─────────────────────────────────────────────────────────────────

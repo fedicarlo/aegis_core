@@ -67,6 +67,7 @@ def create_app():
             init_promotions_table, init_history_tables,
             init_meli_finance_tables, init_mp_tables,
             init_mp_other_movements_table, init_stock_own_tables,
+            init_nfe_tables, init_diagnostico_tables,
         )
         init_db()
         init_data_tables()
@@ -77,6 +78,8 @@ def create_app():
         init_meli_finance_tables()
         init_mp_other_movements_table()
         init_stock_own_tables()
+        init_nfe_tables()
+        init_diagnostico_tables()
 
     return app
 
