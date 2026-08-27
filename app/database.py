@@ -2750,3 +2750,340 @@ def reconcile_pending_shipments(seller_id: str, tolerance: int = 0) -> int:
     conn.commit()
     conn.close()
     return reconciled
+
+
+# ── Ads Intelligence (Mercado Ads / Product Ads) ──────────────────────────────
+#
+# Fluxo de API pós-migração para Ad Groups, auditado em 27/08/2026 contra a
+# conta Maximus. Ver AEGIS_ADS_INTELLIGENCE_V1.md (seção 5) para a spec.
+#
+# Convenções deste módulo:
+#   - IDs do ML guardados com sufixo *_id_ml (campaign_id_ml, ad_group_id_ml);
+#     as tabelas-filhas referenciam esses IDs do ML, não o surrogate `id`.
+#   - Unidade de análise = ad_group_id. NÃO existe métrica por item_id na API.
+#     `ad_group_items` é a ponte 1→N (1 ad_group → N item_id) para cruzar com
+#     orders/product_costs; `ad_group_type` diz quando o grão == SKU (ITEM).
+#   - Origem do dado por TABELA (não há coluna de proveniência genérica):
+#       SOURCE_API       : advertisers, campaigns, campaign_metrics_daily,
+#                          campaign_metrics_detail, ad_groups, ad_group_items,
+#                          ad_group_metrics_daily (exceto coluna `tacos`)
+#       SOURCE_CALCULATED: campaign_target_snapshots (derivado por diff de coleta),
+#                          ads_events com author='system', coluna ad_group_metrics_daily.tacos
+#       SOURCE_MANUAL    : ads_manual_inputs, ads_strategy_profile,
+#                          ads_events/ads_experiments criados pelo usuário
+#   - Campos de impression share (impression_share / top_impression_share /
+#     lost_impression_share_by_budget / _by_ad_rank / acos_benchmark) só existem
+#     no nível de campanha — por isso campaign_metrics_detail é separada e não há
+#     equivalente em ad_group_metrics_daily. Limitação da API, não omissão.
+#   - `campaign_metrics_detail` guarda só linha diária (uma por date); o "resumo
+#     do período" é agregação no Metrics Engine.
+#   - `ads_strategy_profile`: seller_id = '' significa profile global (default);
+#     linhas com seller_id preenchido são override por conta.
+
+def init_ads_tables():
+    """Cria as tabelas do módulo Ads Intelligence (V1 read-only). Idempotente."""
+    conn = get_conn()
+    c = conn.cursor()
+
+    # ── Advertiser ───────────────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS advertisers (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id       TEXT NOT NULL,
+            advertiser_id   INTEGER NOT NULL,
+            site_id         TEXT,
+            advertiser_name TEXT,
+            account_name    TEXT,
+            updated_at      INTEGER,
+            UNIQUE(seller_id, advertiser_id)
+        )
+    """)
+
+    # ── Campanha ─────────────────────────────────────────────────────────────
+    # acos_target / roas_target / acos_top_search_target / automatic_budget são
+    # SOURCE_API (confirmados no payload real) — guardados no valor corrente aqui
+    # e versionados em campaign_target_snapshots.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS campaigns (
+            id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id_ml         INTEGER NOT NULL,
+            advertiser_id          INTEGER NOT NULL,
+            seller_id              TEXT NOT NULL,
+            name                   TEXT,
+            status                 TEXT,
+            strategy               TEXT,
+            channel                TEXT,
+            budget                 REAL,
+            automatic_budget       INTEGER,
+            currency_id            TEXT,
+            acos_target            REAL,
+            roas_target            REAL,
+            acos_top_search_target REAL,
+            date_created_ml        TEXT,
+            last_updated_ml        TEXT,
+            updated_at             INTEGER,
+            UNIQUE(campaign_id_ml)
+        )
+    """)
+
+    # ── Snapshot diário de meta/orçamento (SOURCE_CALCULATED) ───────────────
+    # Append log. O collector grava só quando algum valor muda vs. o último
+    # snapshot (mesmo padrão de cost_history) e deriva ads_events no diff.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS campaign_target_snapshots (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id  INTEGER NOT NULL,
+            seller_id    TEXT NOT NULL,
+            acos_target  REAL,
+            roas_target  REAL,
+            budget       REAL,
+            status       TEXT,
+            snapshot_at  INTEGER NOT NULL
+        )
+    """)
+
+    # ── Métricas de campanha, série diária (SOURCE_API) ────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS campaign_metrics_daily (
+            id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id              INTEGER NOT NULL,
+            seller_id                TEXT NOT NULL,
+            date                     TEXT NOT NULL,
+            clicks                   INTEGER,
+            prints                   INTEGER,
+            ctr                      REAL,
+            cost                     REAL,
+            cpc                      REAL,
+            acos                     REAL,
+            cvr                      REAL,
+            roas                     REAL,
+            sov                      REAL,
+            direct_units_quantity    INTEGER,
+            indirect_units_quantity  INTEGER,
+            units_quantity           INTEGER,
+            direct_items_quantity    INTEGER,
+            indirect_items_quantity  INTEGER,
+            organic_units_quantity   INTEGER,
+            organic_items_quantity   INTEGER,
+            direct_amount            REAL,
+            indirect_amount          REAL,
+            total_amount             REAL,
+            collected_at             INTEGER,
+            UNIQUE(campaign_id, date)
+        )
+    """)
+
+    # ── Métricas "detalhe de campanha": impression share (SOURCE_API) ──────
+    # Só existe no nível de campanha. Linha diária.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS campaign_metrics_detail (
+            id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id                     INTEGER NOT NULL,
+            seller_id                       TEXT NOT NULL,
+            date                            TEXT NOT NULL,
+            impression_share                REAL,
+            top_impression_share            REAL,
+            lost_impression_share_by_budget REAL,
+            lost_impression_share_by_ad_rank REAL,
+            acos_benchmark                  REAL,
+            collected_at                    INTEGER,
+            UNIQUE(campaign_id, date)
+        )
+    """)
+
+    # ── Ad Group (SOURCE_API) ─────────────────────────────────────────────
+    # campaign_id pode ser 0/NULL (grupos ITEM soltos vêm com campaign_id 0).
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ad_groups (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            ad_group_id_ml       INTEGER NOT NULL,
+            campaign_id          INTEGER,
+            advertiser_id        INTEGER,
+            seller_id            TEXT NOT NULL,
+            ad_group_type        TEXT,
+            ad_group_external_id TEXT,
+            title                TEXT,
+            status               TEXT,
+            domain_id            TEXT,
+            catalog_listing      INTEGER,
+            updated_at           INTEGER,
+            UNIQUE(ad_group_id_ml)
+        )
+    """)
+
+    # ── Ponte ad_group → item_id (SOURCE_API, via /ad_groups/{id}/ads) ────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ad_group_items (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ad_group_id     INTEGER NOT NULL,
+            seller_id       TEXT NOT NULL,
+            item_id         TEXT NOT NULL,
+            family_id       TEXT,
+            user_product_id TEXT,
+            catalog_listing INTEGER,
+            status          TEXT,
+            listing_type_id TEXT,
+            logistic_type   TEXT,
+            buy_box_winner  INTEGER,
+            current_level   TEXT,
+            updated_at      INTEGER,
+            UNIQUE(ad_group_id, item_id)
+        )
+    """)
+
+    # ── Métricas por ad_group, série diária (SOURCE_API; tacos é CALCULATED) ─
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ad_group_metrics_daily (
+            id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+            ad_group_id              INTEGER NOT NULL,
+            campaign_id              INTEGER NOT NULL,
+            seller_id                TEXT NOT NULL,
+            date                     TEXT NOT NULL,
+            clicks                   INTEGER,
+            prints                   INTEGER,
+            cost                     REAL,
+            cpc                      REAL,
+            ctr                      REAL,
+            direct_amount            REAL,
+            indirect_amount          REAL,
+            total_amount             REAL,
+            direct_units_quantity    INTEGER,
+            indirect_units_quantity  INTEGER,
+            units_quantity           INTEGER,
+            direct_items_quantity    INTEGER,
+            indirect_items_quantity  INTEGER,
+            organic_units_quantity   INTEGER,
+            organic_items_quantity   INTEGER,
+            acos                     REAL,
+            sov                      REAL,
+            roas                     REAL,
+            cvr                      REAL,
+            tacos                    REAL,
+            collected_at             INTEGER,
+            UNIQUE(ad_group_id, date)
+        )
+    """)
+
+    # ── Strategy Profile (SOURCE_MANUAL, camada configurável) ─────────────
+    # seller_id = '' -> profile global default. JSON em TEXT.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ads_strategy_profile (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id            TEXT NOT NULL DEFAULT '',
+            name                 TEXT NOT NULL,
+            is_active            INTEGER NOT NULL DEFAULT 1,
+            development_rules    TEXT NOT NULL DEFAULT '{}',
+            consolidation_rules TEXT NOT NULL DEFAULT '{}',
+            risk_limits          TEXT NOT NULL DEFAULT '{}',
+            profit_targets       TEXT NOT NULL DEFAULT '{}',
+            minimum_sample_rules TEXT NOT NULL DEFAULT '{}',
+            created_at           INTEGER,
+            updated_at           INTEGER,
+            UNIQUE(seller_id, name)
+        )
+    """)
+    # Linha global default (valores neutros vêm na Etapa 5 — Strategy Engine).
+    c.execute("""
+        INSERT OR IGNORE INTO ads_strategy_profile (seller_id, name, created_at, updated_at)
+        VALUES ('', 'default', ?, ?)
+    """, (int(time.time()), int(time.time())))
+
+    # ── Inputs manuais (SOURCE_MANUAL) ────────────────────────────────────
+    # scope: 'campaign' | 'ad_group' | 'account'; target_id = id do ML (texto)
+    # ou seller_id para scope='account'. Último valor vence (UPSERT).
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ads_manual_inputs (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id  TEXT NOT NULL,
+            scope      TEXT NOT NULL,
+            target_id  TEXT NOT NULL,
+            field_name TEXT NOT NULL,
+            value      TEXT,
+            set_by     TEXT,
+            set_at     INTEGER NOT NULL,
+            UNIQUE(seller_id, scope, target_id, field_name)
+        )
+    """)
+
+    # ── Linha do tempo de eventos (req. 9) ───────────────────────────────
+    # author='system' + source='system' -> derivado de diff de snapshot.
+    # source='manual' -> usuário registrou (motivo/hipótese).
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ads_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id   TEXT NOT NULL,
+            scope       TEXT NOT NULL,
+            target_id   TEXT NOT NULL,
+            changed_at  INTEGER NOT NULL,
+            field       TEXT NOT NULL,
+            old_value   TEXT,
+            new_value   TEXT,
+            author      TEXT,
+            motivo      TEXT,
+            hipotese    TEXT,
+            source      TEXT NOT NULL DEFAULT 'system'
+        )
+    """)
+
+    # ── Experimentos (req. 10) ───────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ads_experiments (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id      TEXT NOT NULL,
+            scope          TEXT NOT NULL,
+            target_id      TEXT NOT NULL,
+            hipotese       TEXT NOT NULL,
+            intervencao    TEXT,
+            janela_inicio  TEXT,
+            janela_fim     TEXT,
+            resultado      TEXT,
+            conclusao      TEXT,
+            status         TEXT NOT NULL DEFAULT 'aberto',
+            created_at     INTEGER NOT NULL,
+            updated_at     INTEGER
+        )
+    """)
+
+    # ── Alertas ──────────────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ads_alerts (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id      TEXT NOT NULL,
+            scope          TEXT NOT NULL,
+            target_id      TEXT NOT NULL,
+            tipo           TEXT NOT NULL,
+            severidade     TEXT NOT NULL,
+            evidencia      TEXT,
+            acao_sugerida  TEXT,
+            dedup_key      TEXT,
+            created_at     INTEGER NOT NULL,
+            resolved_at    INTEGER,
+            UNIQUE(dedup_key)
+        )
+    """)
+
+    # ── orders.buyer_id (compradores únicos p/ régua de amostra) ──────────
+    existing_orders = {row[1] for row in c.execute("PRAGMA table_info(orders)").fetchall()}
+    if "buyer_id" not in existing_orders:
+        c.execute("ALTER TABLE orders ADD COLUMN buyer_id TEXT")
+
+    # ── Índices ──────────────────────────────────────────────────────────
+    for ddl in (
+        "CREATE INDEX IF NOT EXISTS ix_campaigns_seller ON campaigns(seller_id)",
+        "CREATE INDEX IF NOT EXISTS ix_camp_metrics_daily ON campaign_metrics_daily(campaign_id, date)",
+        "CREATE INDEX IF NOT EXISTS ix_camp_metrics_detail ON campaign_metrics_detail(campaign_id, date)",
+        "CREATE INDEX IF NOT EXISTS ix_camp_snapshots ON campaign_target_snapshots(campaign_id, snapshot_at)",
+        "CREATE INDEX IF NOT EXISTS ix_ad_groups_campaign ON ad_groups(campaign_id)",
+        "CREATE INDEX IF NOT EXISTS ix_ad_groups_seller ON ad_groups(seller_id)",
+        "CREATE INDEX IF NOT EXISTS ix_ad_group_items_item ON ad_group_items(item_id)",
+        "CREATE INDEX IF NOT EXISTS ix_ad_group_items_group ON ad_group_items(ad_group_id)",
+        "CREATE INDEX IF NOT EXISTS ix_ag_metrics_daily_group ON ad_group_metrics_daily(ad_group_id, date)",
+        "CREATE INDEX IF NOT EXISTS ix_ag_metrics_daily_camp ON ad_group_metrics_daily(campaign_id, date)",
+        "CREATE INDEX IF NOT EXISTS ix_ads_events_target ON ads_events(scope, target_id, changed_at)",
+        "CREATE INDEX IF NOT EXISTS ix_ads_alerts_open ON ads_alerts(seller_id, resolved_at)",
+        "CREATE INDEX IF NOT EXISTS ix_orders_buyer ON orders(buyer_id)",
+    ):
+        c.execute(ddl)
+
+    conn.commit()
+    conn.close()
