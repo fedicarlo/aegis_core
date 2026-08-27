@@ -25,7 +25,10 @@ import os
 import fcntl
 from datetime import datetime, timedelta
 
-from app.config import DB_PATH, AUTO_SYNC_ENABLED, AUTO_SYNC_INTERVAL_HOURS
+from app.config import (
+    DB_PATH, AUTO_SYNC_ENABLED, AUTO_SYNC_INTERVAL_HOURS,
+    ADS_SYNC_ENABLED, ADS_SYNC_HOUR_UTC,
+)
 from app.utils.logger import get_logger
 
 log = get_logger("scheduler")
@@ -73,13 +76,31 @@ def _run_auto_sync():
         log.error(f"sync automática falhou: {e}")
 
 
+def _run_ads_sync():
+    from app.services.ads_collector import collect_all_ads
+
+    log.info("sync de Ads iniciada")
+    try:
+        results = collect_all_ads()
+        camps = sum(r.get("campaigns", 0) for r in results)
+        ag_days = sum(r.get("ad_group_metric_days", 0) for r in results)
+        errs = sum(len(r.get("errors", [])) for r in results)
+        log.info(
+            f"sync de Ads concluída — {len(results)} conta(s), {camps} campanha(s), "
+            f"{ag_days} dia(s) de métrica por ad group, {errs} erro(s)"
+        )
+    except Exception as e:
+        log.error(f"sync de Ads falhou: {e}")
+
+
 def start_scheduler():
     """Chamado uma vez por worker em create_app(). Só efetivamente sobe o
     scheduler no worker que conseguir a trava; nos demais, é um no-op."""
     global _scheduler
 
-    if not AUTO_SYNC_ENABLED:
-        log.info("sync automática desligada (AUTO_SYNC_ENABLED != true) — não iniciando scheduler")
+    if not (AUTO_SYNC_ENABLED or ADS_SYNC_ENABLED):
+        log.info("nenhuma sync automática ligada (AUTO_SYNC_ENABLED / ADS_SYNC_ENABLED != true) "
+                 "— não iniciando scheduler")
         return None
 
     if not _acquire_scheduler_lock():
@@ -88,19 +109,34 @@ def start_scheduler():
 
     from apscheduler.schedulers.background import BackgroundScheduler
 
-    _scheduler = BackgroundScheduler(daemon=True)
-    _scheduler.add_job(
-        _run_auto_sync,
-        "interval",
-        hours=AUTO_SYNC_INTERVAL_HOURS,
-        id="auto_sync",
-        next_run_time=datetime.now() + timedelta(minutes=2),  # dá tempo do boot terminar
-        max_instances=1,  # nunca roda dois ciclos de sync sobrepostos
-        coalesce=True,    # se perder mais de um disparo (ex: processo dormiu), roda só uma vez ao voltar
-    )
+    _scheduler = BackgroundScheduler(daemon=True, timezone="UTC")
+
+    if AUTO_SYNC_ENABLED:
+        _scheduler.add_job(
+            _run_auto_sync,
+            "interval",
+            hours=AUTO_SYNC_INTERVAL_HOURS,
+            id="auto_sync",
+            next_run_time=datetime.now() + timedelta(minutes=2),  # dá tempo do boot terminar
+            max_instances=1,  # nunca roda dois ciclos de sync sobrepostos
+            coalesce=True,    # se perder mais de um disparo (ex: processo dormiu), roda só uma vez ao voltar
+        )
+        log.info(f"job auto_sync: a cada {AUTO_SYNC_INTERVAL_HOURS}h, primeira em 2min")
+
+    if ADS_SYNC_ENABLED:
+        # 1x/dia, depois de 13h UTC (~10h GMT-3) — quando o ML já consolidou as
+        # métricas de Ads do dia anterior.
+        _scheduler.add_job(
+            _run_ads_sync,
+            "cron",
+            hour=ADS_SYNC_HOUR_UTC,
+            minute=30,
+            id="ads_sync",
+            max_instances=1,
+            coalesce=True,
+        )
+        log.info(f"job ads_sync: cron diário {ADS_SYNC_HOUR_UTC:02d}:30 UTC")
+
     _scheduler.start()
-    log.info(
-        f"scheduler iniciado neste worker (pid={os.getpid()}) — "
-        f"sync automática a cada {AUTO_SYNC_INTERVAL_HOURS}h, primeira em 2min"
-    )
+    log.info(f"scheduler iniciado neste worker (pid={os.getpid()})")
     return _scheduler

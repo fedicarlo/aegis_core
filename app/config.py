@@ -36,6 +36,13 @@ DB_PATH = os.getenv("DB_PATH", "aegis.db")
 AUTO_SYNC_ENABLED        = os.getenv("AUTO_SYNC_ENABLED", "false").lower() == "true"
 AUTO_SYNC_INTERVAL_HOURS = int(os.getenv("AUTO_SYNC_INTERVAL_HOURS", "6"))
 
+# Sync de Ads (Mercado Ads). Job separado do auto-sync de itens/pedidos: as
+# métricas de Ads do ML só consolidam ~10h GMT-3 (13h UTC), então roda 1x/dia
+# de madrugada-manhã UTC, não a cada 6h. Também desligada por padrão.
+ADS_SYNC_ENABLED     = os.getenv("ADS_SYNC_ENABLED", "false").lower() == "true"
+ADS_SYNC_HOUR_UTC    = int(os.getenv("ADS_SYNC_HOUR_UTC", "13"))
+ADS_SYNC_WINDOW_DAYS = int(os.getenv("ADS_SYNC_WINDOW_DAYS", "35"))
+
 ACCOUNTS = [
     "Maximus",
     "Querencia",
