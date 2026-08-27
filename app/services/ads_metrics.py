@@ -24,18 +24,10 @@ from app.database import (
     sum_ad_group_metrics,
     sum_campaign_metrics,
 )
+from app.services import ads_strategy
 from app.utils.logger import get_logger
 
 log = get_logger("ads_metrics")
-
-# Régua de amostra — defaults. A Etapa 5 (Strategy Engine) sobrescreve via
-# ads_strategy_profile.minimum_sample_rules.
-DEFAULT_SAMPLE_RULES = {
-    "min_units": 10,                  # unidades vendidas reais no período
-    "min_orders": 5,                  # pedidos distintos reais
-    "min_days_with_prints": 7,        # dias com veiculação
-    "single_order_dominance_pct": 50.0,  # 1 pedido concentrando > X% das unidades = outlier
-}
 
 _STATUS_SERVING = "VEICULANDO"
 _STATUS_NOT_SERVING = "NAO_VEICULANDO"
@@ -249,8 +241,11 @@ def sample_sufficiency(seller_id, scope, target_id, date_from, date_to, *,
     NUNCA diz "suficiente" olhando só unidades atribuídas: cruza com nº de
     pedidos reais, compradores únicos (quando disponível) e concentração num
     único pedido (o caso "16 unidades de 1 pedido só").
+
+    As regras vêm do Strategy Profile (ads_strategy_profile.minimum_sample_rules,
+    override por seller sobre o global). `rules` (dict parcial) sobrepõe pontualmente.
     """
-    rules = {**DEFAULT_SAMPLE_RULES, **(rules or {})}
+    rules = {**ads_strategy.minimum_sample_rules(seller_id), **(rules or {})}
 
     if scope == "campaign":
         m = campaign_metrics(seller_id, target_id, date_from, date_to,

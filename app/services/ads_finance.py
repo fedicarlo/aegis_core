@@ -25,10 +25,17 @@ from app.database import (
     sum_ad_group_metrics,
     sum_campaign_metrics,
 )
-from app.services import ads_metrics
+from app.services import ads_metrics, ads_strategy
 from app.utils.logger import get_logger
 
 log = get_logger("ads_finance")
+
+
+def _resolve_margem_alvo(seller_id, margem_alvo_pct):
+    """margem_alvo_pct explícito vence; senão vem do Strategy Profile (profit_targets)."""
+    if margem_alvo_pct is not None:
+        return margem_alvo_pct
+    return ads_strategy.margem_alvo_pct(seller_id)
 
 _DEFAULT_ML_FEE_RATE = 0.14  # mesmo default de analytics/compute_margin
 
@@ -189,7 +196,7 @@ def ad_group_finance(seller_id, ad_group_id, date_from, date_to, *,
     fin = _finance_from_items(
         seller_id, item_ids, win["effective_from"], win["effective_to"],
         ads_cost=agg.get("cost"), ads_revenue=agg.get("total_amount"),
-        margem_alvo_pct=margem_alvo_pct)
+        margem_alvo_pct=_resolve_margem_alvo(seller_id, margem_alvo_pct))
     return {**base, "finance": fin}
 
 
@@ -220,7 +227,7 @@ def campaign_finance(seller_id, campaign_id, date_from, date_to, *,
     fin = _finance_from_items(
         seller_id, item_ids, win["effective_from"], win["effective_to"],
         ads_cost=agg.get("cost"), ads_revenue=agg.get("total_amount"),
-        margem_alvo_pct=margem_alvo_pct)
+        margem_alvo_pct=_resolve_margem_alvo(seller_id, margem_alvo_pct))
     return {**base, "finance": fin}
 
 
@@ -253,7 +260,7 @@ def account_finance(seller_id, date_from, date_to, *, margem_alvo_pct=None):
 
     fin = _finance_from_items(seller_id, sorted(all_items), date_from, date_to,
                               ads_cost=ads_cost, ads_revenue=ads_rev,
-                              margem_alvo_pct=margem_alvo_pct)
+                              margem_alvo_pct=_resolve_margem_alvo(seller_id, margem_alvo_pct))
     fin.pop("by_sku", None)  # conta: resumo, não SKU a SKU
     return {
         "scope": "account", "seller_id": seller_id,

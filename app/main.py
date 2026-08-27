@@ -96,6 +96,9 @@ def create_app():
         init_concorrencia_tables()
         init_ads_tables()
 
+        from app.services.ads_strategy import seed_default_profile
+        seed_default_profile()
+
         from app.services.scheduler import start_scheduler
         start_scheduler()
 
