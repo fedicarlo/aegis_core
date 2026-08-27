@@ -249,12 +249,13 @@ def save_orders(seller_id: str, orders: list) -> dict:
     failed = 0
     for order in orders:
         order_id = str(order.get("id"))
+        buyer_id = str((order.get("buyer") or {}).get("id") or "") or None
         try:
             for item in order.get("order_items", []):
                 conn.execute("""
                     INSERT OR REPLACE INTO orders
-                    (id, seller_id, item_id, quantity, price, date_created, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (id, seller_id, item_id, quantity, price, date_created, status, buyer_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     order_id,
                     seller_id,
@@ -263,6 +264,7 @@ def save_orders(seller_id: str, orders: list) -> dict:
                     item.get("unit_price"),
                     order.get("date_created"),
                     order.get("status"),
+                    buyer_id,
                 ))
             conn.commit()
             saved += 1
