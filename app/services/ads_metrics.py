@@ -278,27 +278,42 @@ def sample_sufficiency(seller_id, scope, target_id, date_from, date_to, *,
         seller_id, item_ids, win["effective_from"], win["effective_to"])["total"]
     f = m["funnel"]
 
+    # Gate no sinal DO ANÚNCIO (cliques / vendas atribuídas / dias), não no total
+    # de vendas do item — item que vende muito organicamente pode ter Ads sem sinal.
+    ads_clicks = int(_f(f.get("clicks")))
+    ads_units = int(_f(f.get("ads_units")))
+    ads_orders = int(_f(f.get("ads_items")))
+    days = int(_f(f.get("days_with_prints")))
+
     real_units = orders["qty"]
     dominance = _ratio(orders["max_single_order_qty"], real_units, pct=True) or 0.0
-    outlier = dominance >= rules["single_order_dominance_pct"] and orders["orders_count"] > 0
+    # Concentração num pedido só importa em amostra pequena (o caso "16 un de 1 pedido");
+    # em item que vende muito, 1 pedido grande não distorce o diagnóstico do Ad.
+    amostra_pequena = 0 < real_units <= rules["min_ads_units"] * 3
+    outlier = (dominance >= rules["single_order_dominance_pct"]
+               and amostra_pequena and ads_units > 0)
 
     numeros = {
-        "ads_units": f["ads_units"],
+        "ads_clicks": ads_clicks,
+        "ads_units": ads_units,
+        "ads_orders": ads_orders,
+        "days_with_prints": days,
         "real_units": real_units,
         "real_orders": orders["orders_count"],
         "unique_buyers": orders["unique_buyers"] if orders["buyer_id_disponivel"] else None,
         "buyer_id_disponivel": orders["buyer_id_disponivel"],
-        "days_with_prints": f["days_with_prints"],
         "max_single_order_qty": orders["max_single_order_qty"],
         "single_order_dominance_pct": dominance,
     }
 
     falhas = []
-    if real_units < rules["min_units"]:
-        falhas.append("poucas_unidades")
-    if orders["orders_count"] < rules["min_orders"]:
-        falhas.append("poucos_pedidos")
-    if f["days_with_prints"] < rules["min_days_with_prints"]:
+    if ads_clicks < rules["min_clicks"]:
+        falhas.append("poucos_cliques")
+    if ads_units < rules["min_ads_units"]:
+        falhas.append("poucas_unidades_ads")
+    if ads_orders < rules["min_ads_orders"]:
+        falhas.append("poucas_vendas_ads")
+    if days < rules["min_days_with_prints"]:
         falhas.append("serie_curta")
     if outlier:
         falhas.append("dominado_por_1_pedido")

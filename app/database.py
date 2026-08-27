@@ -2980,11 +2980,17 @@ def init_ads_tables():
             risk_limits          TEXT NOT NULL DEFAULT '{}',
             profit_targets       TEXT NOT NULL DEFAULT '{}',
             minimum_sample_rules TEXT NOT NULL DEFAULT '{}',
+            diagnostic_rules     TEXT NOT NULL DEFAULT '{}',
             created_at           INTEGER,
             updated_at           INTEGER,
             UNIQUE(seller_id, name)
         )
     """)
+    # diagnostic_rules: limiares dos casos A-E do Diagnostic Engine (Etapa 6).
+    # Grupo próprio (não misturar com risk_limits, que é do Alert Engine).
+    existing_sp = {row[1] for row in c.execute("PRAGMA table_info(ads_strategy_profile)").fetchall()}
+    if "diagnostic_rules" not in existing_sp:
+        c.execute("ALTER TABLE ads_strategy_profile ADD COLUMN diagnostic_rules TEXT NOT NULL DEFAULT '{}'")
     # Linha global default (valores neutros vêm na Etapa 5 — Strategy Engine).
     c.execute("""
         INSERT OR IGNORE INTO ads_strategy_profile (seller_id, name, created_at, updated_at)

@@ -58,13 +58,13 @@ def main():
     hr("2) get_strategy_profile(None) — profile global efetivo")
     pj(ads_strategy.get_strategy_profile(None))
 
-    hr("3) override por seller — save_strategy_profile(Maximus, minimum_sample_rules.min_orders=999)")
-    ads_strategy.save_strategy_profile(sid, {"minimum_sample_rules": {"min_orders": 999}})
+    hr("3) override por seller — save_strategy_profile(Maximus, minimum_sample_rules.min_ads_orders=999)")
+    ads_strategy.save_strategy_profile(sid, {"minimum_sample_rules": {"min_ads_orders": 999}})
     prof = ads_strategy.get_strategy_profile(sid)
     print("   minimum_sample_rules do seller:")
     pj(prof["minimum_sample_rules"])
-    assert prof["minimum_sample_rules"]["min_orders"] == 999
-    assert prof["minimum_sample_rules"]["min_units"] == 10, "merge apagou chave do default!"
+    assert prof["minimum_sample_rules"]["min_ads_orders"] == 999
+    assert prof["minimum_sample_rules"]["min_clicks"] == 30, "merge apagou chave do default!"
     assert prof["minimum_sample_rules"]["_source"] == "seller"
     print("   OK: override aplicado, demais chaves preservadas (merge), _source=seller")
 
@@ -80,13 +80,13 @@ def main():
     conn.close()
 
     hr("5) MESMA campanha, MESMO código — veredito muda pelo profile")
-    print("   5a) régua com override do seller ativo (min_orders=999):")
+    print("   5a) régua com override do seller ativo (min_ads_orders=999):")
     ss = ads_metrics.sample_sufficiency(sid, "campaign", cid, d30, dt)
     pj({k: ss.get(k) for k in ("suficiente", "motivo", "numeros")})
-    assert ss["suficiente"] is False and "poucos_pedidos" in ss["motivo"]
+    assert ss["suficiente"] is False and "poucas_vendas_ads" in ss["motivo"]
 
-    print("\n   5b) removo o override (volto pro default global min_orders=5):")
-    ads_strategy.save_strategy_profile(sid, {"minimum_sample_rules": {"min_orders": 5}})
+    print("\n   5b) removo o override (volto pro default global min_ads_orders=5):")
+    ads_strategy.save_strategy_profile(sid, {"minimum_sample_rules": {"min_ads_orders": 5}})
     ss2 = ads_metrics.sample_sufficiency(sid, "campaign", cid, d30, dt)
     pj({k: ss2.get(k) for k in ("suficiente", "motivo")})
     assert ss2["suficiente"] is True

@@ -32,10 +32,13 @@ DEFAULT_NAME = "default"
 # ── DEFAULTS NEUTROS — ajuste por profile, não aqui ──────────────────────────
 DEFAULTS = {
     "minimum_sample_rules": {
-        "min_units": 10,                     # unidades vendidas reais no período
-        "min_orders": 5,                     # pedidos distintos reais
-        "min_days_with_prints": 7,           # dias com veiculação
-        "single_order_dominance_pct": 50.0,  # 1 pedido concentrando > X% das unidades = outlier
+        # Gate = quanto sinal DO ANÚNCIO existe (não o total de vendas do item —
+        # um item pode vender muito organicamente e mesmo assim ter Ads sem sinal).
+        "min_clicks": 30,                   # cliques atribuídos ao Ads
+        "min_ads_units": 8,                 # unidades atribuídas ao Ads
+        "min_ads_orders": 5,               # vendas (items_quantity) atribuídas ao Ads
+        "min_days_with_prints": 7,          # dias com veiculação
+        "single_order_dominance_pct": 50.0,  # 1 pedido concentrando > X% das vendas reais (amostra pequena) = outlier
     },
     "profit_targets": {
         "margem_alvo_pct": 10.0,             # margem depois de Ads que a operação quer manter
@@ -60,6 +63,13 @@ DEFAULTS = {
         "acos_dentro_da_meta_dias": None,
         "escala_incremento_verba": None,     # regra de escala (ex: +R$X por ponto de ROAS) — por profile
         "escala_por_ponto_roas": None,
+    },
+    "diagnostic_rules": {                     # limiares dos casos A-E (Diagnostic Engine, Etapa 6)
+        "impression_share_baixo_pct": 30.0,   # impression share abaixo disso: exposição é candidata a gargalo
+        "lost_by_ad_rank_alto_pct": 40.0,     # perda de impressão por classificação acima disso: sinal A
+        "ctr_floor_pct": 0.15,                # CTR abaixo disso (com volume de impressão): sinal B
+        "cvr_floor_pct": 1.0,                 # CVR abaixo disso (com cliques suficientes): sinal C
+        "min_clicks_para_conversao": 30,      # cliques mínimos p/ avaliar conversão sem cair em amostra insuficiente
     },
 }
 
@@ -142,6 +152,10 @@ def consolidation_rules(seller_id=None):
     return _group(seller_id, "consolidation_rules")
 
 
+def diagnostic_rules(seller_id=None):
+    return _group(seller_id, "diagnostic_rules")
+
+
 # ── Escrita ────────────────────────────────────────────────────────────────
 
 def save_strategy_profile(seller_id, groups, *, name=DEFAULT_NAME):
@@ -181,18 +195,22 @@ def save_strategy_profile(seller_id, groups, *, name=DEFAULT_NAME):
 
 def seed_default_profile():
     """
-    Garante que o profile global 'default' exista e tenha os DEFAULTS materializados
-    em JSON (facilita edição pela UI da Etapa 8). Idempotente — só escreve grupos
-    ainda vazios ('{}' ou NULL). Não sobrescreve ajuste já feito.
+    Garante que o profile global 'default' exista e tenha TODAS as chaves dos
+    DEFAULTS materializadas em JSON (facilita edição pela UI da Etapa 8).
+    Idempotente. NÃO sobrescreve valores já ajustados — só adiciona chaves que
+    faltam (ex: quando um DEFAULTS ganha um limiar novo numa etapa posterior).
     """
     conn = get_conn()
     row = _row(conn, GLOBAL)
     conn.close()
     to_write = {}
     for grp in _GROUPS:
-        if not row or not _parse(row[grp]):
-            to_write[grp] = DEFAULTS[grp]
+        current = _parse(row[grp]) if row else {}
+        faltando = {k: v for k, v in DEFAULTS[grp].items() if k not in current}
+        if faltando:
+            to_write[grp] = faltando
     if to_write:
         save_strategy_profile(GLOBAL, to_write)
-        log.info(f"seed do profile global 'default': {list(to_write)}")
+        log.info(f"seed do profile global 'default' — chaves adicionadas: "
+                 f"{ {g: list(v) for g, v in to_write.items()} }")
     return list(to_write)
