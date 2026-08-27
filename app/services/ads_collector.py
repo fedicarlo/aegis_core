@@ -213,10 +213,14 @@ def collect_ads_account(account: dict, *, window_days: int = None,
                 r["ad_group_metric_days"] += 1
 
         # ── Upsert dos ad groups (campanha + órfãos), tags mescladas ────
+        # is_scaffold explícito: órfão (fora de campanha) OU status EMPTY.
+        # Um grupo scaffold nunca representa "performance zero" — é "não veicula".
+        orphan_ids = {g["id"] for g in orphans}
         all_groups = [g for glist in groups_by_cid.values() for g in glist] + orphans
         for g in all_groups:
             tags = tags_by_ag.get(g["id"]) or g.get("tags") or []
-            upsert_ads_ad_group(seller_id, g, tags=tags)
+            is_scaffold = (g["id"] in orphan_ids) or (str(g.get("status")).upper() == "EMPTY")
+            upsert_ads_ad_group(seller_id, g, tags=tags, is_scaffold=is_scaffold)
             r["ad_groups"] += 1
 
         # ── Ponte ad_group → item_id ────────────────────────────────────

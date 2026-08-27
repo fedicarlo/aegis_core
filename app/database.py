@@ -3079,6 +3079,12 @@ def init_ads_tables():
         c.execute("ALTER TABLE ad_groups ADD COLUMN date_created_ml TEXT")
     if "tags" not in existing_ag:
         c.execute("ALTER TABLE ad_groups ADD COLUMN tags TEXT")
+    # is_scaffold: grupo que estruturalmente NÃO é uma unidade de veiculação —
+    #   órfão (fora de qualquer campanha) ou status EMPTY. Definido na coleta.
+    #   Serve pra Metrics/Finance/Diagnostic filtrarem sem reinventar a regra:
+    #   um grupo is_scaffold JAMAIS representa "performance zero", é "não veicula".
+    if "is_scaffold" not in existing_ag:
+        c.execute("ALTER TABLE ad_groups ADD COLUMN is_scaffold INTEGER DEFAULT 0")
 
     # ── Índices ──────────────────────────────────────────────────────────
     for ddl in (
@@ -3297,7 +3303,14 @@ def upsert_ad_group_metrics_daily(seller_id, campaign_id, ad_group_id, date, met
 
 # ── Ad groups + ponte de itens ─────────────────────────────────────────────
 
-def upsert_ads_ad_group(seller_id, ag, tags=None):
+def upsert_ads_ad_group(seller_id, ag, tags=None, is_scaffold=None):
+    """
+    is_scaffold: se None, deriva de (campaign_id ausente) OR (status == 'EMPTY').
+    O collector passa explícito (sabe se o grupo é órfão) — este default é fallback.
+    """
+    status = ag.get("status")
+    if is_scaffold is None:
+        is_scaffold = (not ag.get("campaign_id")) or (str(status).upper() == "EMPTY")
     conn = get_conn()
     _ads_upsert(conn, "ad_groups", ("ad_group_id_ml",), {
         "ad_group_id_ml": ag.get("id"),
@@ -3308,12 +3321,13 @@ def upsert_ads_ad_group(seller_id, ag, tags=None):
         "ad_group_external_id": str(ag.get("ad_group_external_id"))
         if ag.get("ad_group_external_id") is not None else None,
         "title": ag.get("title"),
-        "status": ag.get("status"),
+        "status": status,
         "domain_id": ag.get("domain_id"),
         "catalog_listing": 1 if ag.get("catalog_listing") else 0,
         "date_created_ml": ag.get("date_created"),
         "tags": json.dumps(tags if tags is not None else ag.get("tags") or [],
                            ensure_ascii=False),
+        "is_scaffold": 1 if is_scaffold else 0,
         "updated_at": int(time.time()),
     })
     conn.commit()
@@ -3383,3 +3397,244 @@ def ads_row_counts(seller_id=None):
         out[t] = n
     conn.close()
     return out
+
+
+# ── Ads Intelligence — leitura p/ Metrics / Finance Engine (Etapa 4) ──────────
+
+_SUM_METRIC_COLS = _CAMPAIGN_METRIC_COLS  # somáveis; ratios são recalculados no engine
+
+
+def get_ads_campaign(seller_id, campaign_id):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM campaigns WHERE seller_id = ? AND campaign_id_ml = ?",
+        (seller_id, campaign_id),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_ads_ad_group(seller_id, ad_group_id):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM ad_groups WHERE seller_id = ? AND ad_group_id_ml = ?",
+        (seller_id, ad_group_id),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_campaign_ad_groups(seller_id, campaign_id, *, include_scaffold=True):
+    conn = get_conn()
+    sql = ("SELECT * FROM ad_groups WHERE seller_id = ? AND campaign_id = ?")
+    if not include_scaffold:
+        sql += " AND is_scaffold = 0"
+    rows = conn.execute(sql, (seller_id, campaign_id)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_ad_group_item_ids(seller_id, ad_group_id):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT DISTINCT item_id FROM ad_group_items WHERE seller_id = ? AND ad_group_id = ?",
+        (seller_id, ad_group_id),
+    ).fetchall()
+    conn.close()
+    return [r["item_id"] for r in rows]
+
+
+def get_campaign_item_ids(seller_id, campaign_id, *, include_scaffold=False):
+    """item_id distintos veiculados pela campanha (via seus ad groups não-scaffold)."""
+    conn = get_conn()
+    sql = (
+        "SELECT DISTINCT i.item_id "
+        "FROM ad_group_items i JOIN ad_groups g ON g.ad_group_id_ml = i.ad_group_id "
+        "WHERE g.seller_id = ? AND g.campaign_id = ?"
+    )
+    if not include_scaffold:
+        sql += " AND g.is_scaffold = 0"
+    rows = conn.execute(sql, (seller_id, campaign_id)).fetchall()
+    conn.close()
+    return [r["item_id"] for r in rows]
+
+
+def get_product_costs_map(seller_id, item_ids):
+    """{item_id: {unit_cost, tax_rate, ml_fee_rate, shipping_cost}} p/ os itens que têm custo."""
+    if not item_ids:
+        return {}
+    ph = ", ".join("?" for _ in item_ids)
+    conn = get_conn()
+    rows = conn.execute(
+        f"SELECT item_id, unit_cost, tax_rate, ml_fee_rate, shipping_cost "
+        f"FROM product_costs WHERE seller_id = ? AND variation_id = '' AND item_id IN ({ph})",
+        (seller_id, *item_ids),
+    ).fetchall()
+    conn.close()
+    return {r["item_id"]: {
+        "unit_cost": r["unit_cost"], "tax_rate": r["tax_rate"],
+        "ml_fee_rate": r["ml_fee_rate"], "shipping_cost": r["shipping_cost"],
+    } for r in rows}
+
+
+def _sum_metrics(table, id_col, seller_id, target_id, date_from, date_to):
+    cols = ", ".join(f"COALESCE(SUM({c}), 0) AS {c}" for c in _SUM_METRIC_COLS)
+    conn = get_conn()
+    row = conn.execute(
+        f"SELECT COUNT(*) AS n_days, "
+        f"SUM(CASE WHEN prints > 0 THEN 1 ELSE 0 END) AS days_with_prints, {cols} "
+        f"FROM {table} WHERE seller_id = ? AND {id_col} = ? AND date >= ? AND date <= ?",
+        (seller_id, target_id, date_from, date_to),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def sum_campaign_metrics(seller_id, campaign_id, date_from, date_to):
+    return _sum_metrics("campaign_metrics_daily", "campaign_id",
+                        seller_id, campaign_id, date_from, date_to)
+
+
+def sum_ad_group_metrics(seller_id, ad_group_id, date_from, date_to):
+    return _sum_metrics("ad_group_metrics_daily", "ad_group_id",
+                        seller_id, ad_group_id, date_from, date_to)
+
+
+def get_campaign_impression_share_avg(seller_id, campaign_id, date_from, date_to):
+    """
+    Impression share do período: média ponderada por prints do dia (join
+    detail x daily). acos_benchmark idem. Retorna {} se não há linha de detail.
+    """
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT "
+        "  SUM(d.impression_share * m.prints)              AS is_w, "
+        "  SUM(d.top_impression_share * m.prints)          AS tis_w, "
+        "  SUM(d.lost_impression_share_by_budget * m.prints)   AS lb_w, "
+        "  SUM(d.lost_impression_share_by_ad_rank * m.prints)  AS lr_w, "
+        "  SUM(d.acos_benchmark * m.prints)                AS bench_w, "
+        "  SUM(m.prints)                                   AS prints "
+        "FROM campaign_metrics_detail d "
+        "JOIN campaign_metrics_daily m "
+        "  ON m.campaign_id = d.campaign_id AND m.date = d.date "
+        "WHERE d.seller_id = ? AND d.campaign_id = ? AND d.date >= ? AND d.date <= ?",
+        (seller_id, campaign_id, date_from, date_to),
+    ).fetchone()
+    conn.close()
+    if not row or not row["prints"]:
+        return {}
+    p = row["prints"]
+    return {
+        "impression_share": row["is_w"] / p if row["is_w"] is not None else None,
+        "top_impression_share": row["tis_w"] / p if row["tis_w"] is not None else None,
+        "lost_impression_share_by_budget": row["lb_w"] / p if row["lb_w"] is not None else None,
+        "lost_impression_share_by_ad_rank": row["lr_w"] / p if row["lr_w"] is not None else None,
+        "acos_benchmark": row["bench_w"] / p if row["bench_w"] is not None else None,
+    }
+
+
+def get_campaign_daily_series(seller_id, campaign_id, date_from, date_to):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT m.*, "
+        "  d.impression_share, d.top_impression_share, "
+        "  d.lost_impression_share_by_budget, d.lost_impression_share_by_ad_rank, "
+        "  d.acos_benchmark "
+        "FROM campaign_metrics_daily m "
+        "LEFT JOIN campaign_metrics_detail d "
+        "  ON d.campaign_id = m.campaign_id AND d.date = m.date "
+        "WHERE m.seller_id = ? AND m.campaign_id = ? AND m.date >= ? AND m.date <= ? "
+        "ORDER BY m.date",
+        (seller_id, campaign_id, date_from, date_to),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_ad_group_daily_series(seller_id, ad_group_id, date_from, date_to):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM ad_group_metrics_daily "
+        "WHERE seller_id = ? AND ad_group_id = ? AND date >= ? AND date <= ? ORDER BY date",
+        (seller_id, ad_group_id, date_from, date_to),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_last_campaign_change_date(campaign_id):
+    """Data (YYYY-MM-DD) da última alteração de meta/orçamento/status da campanha,
+    a partir de ads_events (author='system'). None se nunca mudou."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT MAX(changed_at) AS ts FROM ads_events "
+        "WHERE scope = 'campaign' AND target_id = ? AND field IN "
+        "('acos_target','roas_target','budget','status')",
+        (str(campaign_id),),
+    ).fetchone()
+    conn.close()
+    if not row or not row["ts"]:
+        return None
+    return time.strftime("%Y-%m-%d", time.gmtime(int(row["ts"])))
+
+
+def get_orders_agg_for_items(seller_id, item_ids, date_from, date_to):
+    """
+    Agrega vendas REAIS (tabela orders) dos item_ids no período. Datas de orders
+    são convertidas p/ GMT-3 (date(datetime(date_created,'-3 hours'))) pra alinhar
+    com as datas de métrica de Ads (que são GMT-3). Ignora status 'cancelled'.
+
+    Retorna:
+      total: {qty, receita_bruta, orders_count, unique_buyers, buyer_id_disponivel,
+              max_single_order_qty, days_with_orders}
+      by_item: {item_id: {qty, receita_bruta, orders_count}}
+    """
+    empty = {"total": {"qty": 0, "receita_bruta": 0.0, "orders_count": 0,
+                       "unique_buyers": 0, "buyer_id_disponivel": False,
+                       "max_single_order_qty": 0, "days_with_orders": 0},
+             "by_item": {}}
+    if not item_ids:
+        return empty
+    ph = ", ".join("?" for _ in item_ids)
+    args = (seller_id, *item_ids, date_from, date_to)
+    dfilter = (
+        f"seller_id = ? AND item_id IN ({ph}) AND status != 'cancelled' "
+        f"AND date(datetime(date_created, '-3 hours')) >= ? "
+        f"AND date(datetime(date_created, '-3 hours')) <= ?"
+    )
+    conn = get_conn()
+    total = conn.execute(
+        f"SELECT COALESCE(SUM(quantity), 0) AS qty, "
+        f"       COALESCE(SUM(quantity * price), 0) AS receita_bruta, "
+        f"       COUNT(DISTINCT id) AS orders_count, "
+        f"       COUNT(DISTINCT buyer_id) AS unique_buyers, "
+        f"       COUNT(buyer_id) AS n_with_buyer, "
+        f"       COALESCE(MAX(quantity), 0) AS max_single_order_qty, "
+        f"       COUNT(DISTINCT date(datetime(date_created, '-3 hours'))) AS days_with_orders "
+        f"FROM orders WHERE {dfilter}", args,
+    ).fetchone()
+    by_item_rows = conn.execute(
+        f"SELECT item_id, COALESCE(SUM(quantity),0) AS qty, "
+        f"       COALESCE(SUM(quantity*price),0) AS receita_bruta, "
+        f"       COUNT(DISTINCT id) AS orders_count "
+        f"FROM orders WHERE {dfilter} GROUP BY item_id", args,
+    ).fetchall()
+    conn.close()
+
+    t = dict(total)
+    return {
+        "total": {
+            "qty": int(t["qty"]),
+            "receita_bruta": round(float(t["receita_bruta"]), 2),
+            "orders_count": int(t["orders_count"]),
+            "unique_buyers": int(t["unique_buyers"]),
+            "buyer_id_disponivel": bool(t["n_with_buyer"]),
+            "max_single_order_qty": int(t["max_single_order_qty"]),
+            "days_with_orders": int(t["days_with_orders"]),
+        },
+        "by_item": {r["item_id"]: {
+            "qty": int(r["qty"]),
+            "receita_bruta": round(float(r["receita_bruta"]), 2),
+            "orders_count": int(r["orders_count"]),
+        } for r in by_item_rows},
+    }
