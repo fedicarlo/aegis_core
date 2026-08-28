@@ -14,6 +14,7 @@ from app.routes.financeiro import financeiro_bp
 from app.routes.analise_queda import analise_queda_bp
 from app.routes.stock import stock_bp
 from app.routes.concorrencia import concorrencia_bp
+from app.routes.ads import ads_bp
 
 
 def _num_br(value) -> str:
@@ -72,6 +73,7 @@ def create_app():
     app.register_blueprint(analise_queda_bp)
     app.register_blueprint(stock_bp)
     app.register_blueprint(concorrencia_bp)
+    app.register_blueprint(ads_bp)
 
     with app.app_context():
         from app.database import (
