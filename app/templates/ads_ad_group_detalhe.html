@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AEGIS Ads — {{ d.ad_group.title or d.ad_group.external_id }}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d0d0d; color: #e0e0e0; }
+  a { color: #f5a623; text-decoration: none; } a:hover { text-decoration: underline; }
+  header { background: #111; border-bottom: 1px solid #222; padding: 16px 32px; display: flex;
+           align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .logo { font-size: 20px; font-weight: 700; letter-spacing: 3px; color: #fff; } .logo span { color: #f5a623; }
+  nav a { margin-left: 16px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+  main { padding: 24px 32px; max-width: 1280px; margin: 0 auto; }
+  h1 { font-size: 17px; color: #fff; margin-bottom: 4px; }
+  .meta { font-size: 12px; color: #888; margin-bottom: 16px; }
+  .card { background: #141414; border: 1px solid #242424; border-radius: 8px; padding: 16px 18px; margin-bottom: 18px; }
+  .card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #666; margin-bottom: 12px; }
+  .grey { color: #888; } .green { color: #4caf50; } .orange { color: #f5a623; } .red { color: #ef5350; } .blue { color: #64b5f6; }
+  .filters { display: flex; gap: 6px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+  .filters a { padding: 5px 11px; border: 1px solid #333; border-radius: 5px; font-size: 12px; color: #aaa; }
+  .filters a.active { background: #f5a623; color: #111; border-color: #f5a623; font-weight: 700; }
+  .badge { display:inline-block; padding: 3px 11px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+  .b-COM_GARGALO { background: #3d3413; color: #ffd54f; border: 1px solid #f5a623; }
+  .b-SAUDAVEL { background: #143d14; color: #81c784; border: 1px solid #2e7d32; }
+  .b-NAO_VEICULANDO { background: #2a2a2a; color: #888; border: 1px solid #444; }
+  .b-APRENDIZADO { background: #16283d; color: #90caf9; border: 1px solid #1976d2; }
+  .rec { background: #17130a; border: 1px solid #4a3a12; border-radius: 8px; padding: 16px 18px; margin-bottom: 18px; }
+  .rec .acao { font-size: 15px; color: #fff; font-weight: 600; margin: 6px 0 10px; }
+  .conf { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #2a2a2a; }
+  .conf.alta { color: #81c784; } .conf.media { color: #ffd54f; } .conf.baixa { color: #ef9a9a; }
+  .fato { font-size: 13px; color: #cfcfcf; padding: 4px 0 4px 18px; position: relative; }
+  .fato::before { content: "FATO"; position: absolute; left: 0; top: 4px; font-size: 8px; color: #4caf50; font-weight: 700; }
+  .hip { font-size: 13px; color: #cfcfcf; padding: 4px 0 4px 26px; position: relative; font-style: italic; }
+  .hip::before { content: "HIP."; position: absolute; left: 0; top: 4px; font-size: 8px; color: #f5a623; font-weight: 700; }
+  .caso-h { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #999; margin: 14px 0 4px; }
+  .caso-h .tag { background:#2a2210; color:#f5a623; padding:1px 7px; border-radius:8px; font-weight:700; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid #202020; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #777; }
+  tr:hover td { background: #1a1a1a; }
+  .lens { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .lens > div { background: #101010; border: 1px solid #222; border-radius: 6px; padding: 12px 14px; }
+  .lens h4 { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #777; margin-bottom: 8px; }
+  .lens .line { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
+  .lens .line b { color: #fff; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .kpis .k { background: #101010; border: 1px solid #222; border-radius: 6px; padding: 10px 12px; }
+  .kpis .k .v { font-size: 18px; font-weight: 700; color: #fff; } .kpis .k .l { font-size: 11px; color: #888; }
+  .alert { border-left: 3px solid; padding: 9px 13px; margin-bottom: 7px; background: #161616; border-radius: 4px; font-size: 13px; }
+  .alert.critico { border-color: #c62828; } .alert.atencao { border-color: #f5a623; } .alert.info { border-color: #1976d2; }
+  .tl { font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid #1e1e1e; }
+  .tl .sys { color: #64b5f6; } .tl .man { color: #f5a623; }
+  .note { font-size: 11px; color: #666; }
+  canvas { max-height: 240px; }
+  .warn { background: #221a0a; border: 1px solid #4a3a12; border-radius: 6px; padding: 10px 12px; font-size: 12px; color: #d0c090; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">AEGIS <span>ADS</span></div>
+  <nav>
+    <a href="/ads/{{ seller_id }}">Cockpit</a>
+    <a href="/ads/{{ seller_id }}/campanhas?period={{ period }}">Campanhas</a>
+    {% if d.ad_group.campaign_id %}<a href="/ads/{{ seller_id }}/campanha/{{ d.ad_group.campaign_id }}?period={{ period }}">← Campanha</a>{% endif %}
+    <a href="/ads/{{ seller_id }}/experimentos">Experimentos</a>
+    <a href="/ads/{{ seller_id }}/config">Config</a>
+  </nav>
+</header>
+
+<main>
+  <h1>{{ d.ad_group.title or d.ad_group.external_id }}
+    <span class="badge b-{{ d.status }}">{{ d.status | replace('_',' ') }}</span></h1>
+  <div class="meta">
+    ad group {{ d.ad_group.id }} · tipo <b>{{ d.ad_group.type }}</b>
+    {% if d.sku_level %}<span class="green">(grão = 1 SKU)</span>{% else %}<span class="orange">(agrega {{ d.n_itens }} SKU — métrica de Ads é do grupo, não por SKU)</span>{% endif %}
+    · external_id {{ d.ad_group.external_id }} · status ML {{ d.ad_group.status_ml }}
+    · criado {{ d.ad_group.date_created_ml }} · {{ d.ad_group.tags }}
+    · período efetivo {{ d.window.effective_from }}…{{ d.window.effective_to }}
+  </div>
+
+  <div class="filters">
+    {% for p in periods %}
+    <a href="?period={{ p }}{{ '&desde_ultima_alteracao=1' if desde_ultima_alteracao }}" class="{{ 'active' if p == period }}">{{ p }}d</a>
+    {% endfor %}
+    <a href="?period={{ period }}{{ '' if desde_ultima_alteracao else '&desde_ultima_alteracao=1' }}" class="{{ 'active' if desde_ultima_alteracao }}">desde última alteração</a>
+  </div>
+
+  {% if not d.serving %}
+  <div class="card"><h3>Não veiculando</h3>
+    <div class="grey">motivo: {{ d.not_serving_reason }}. Sem diagnóstico — nunca tratado como "performance zero".</div>
+    {% if d.itens %}
+    <table style="margin-top:12px">
+      <thead><tr><th>SKU</th><th>Título</th><th>Reputação</th><th>Buy box</th><th>Status anúncio</th></tr></thead>
+      <tbody>{% for it in d.itens %}<tr>
+        <td>{{ it.item_id }}</td><td>{{ it.title or '—' }}</td><td>{{ it.current_level or '—' }}</td>
+        <td>{{ 'sim' if it.buy_box_winner else 'não' }}</td><td>{{ it.ad_status }}</td>
+      </tr>{% endfor %}</tbody>
+    </table>
+    {% endif %}
+  </div>
+  {% else %}
+
+  <div class="rec">
+    <h3 style="color:#999">Próxima ação {% if d.recomendacao.caso %}· caso {{ d.recomendacao.caso }}{% endif %}
+      <span class="conf {{ d.recomendacao.confianca }}">confiança {{ d.recomendacao.confianca }}</span></h3>
+    <div class="acao">{{ d.recomendacao.proxima_acao }}</div>
+    {% for f in d.recomendacao.porque.fatos %}<div class="fato">{{ f }}</div>{% endfor %}
+    {% for h in d.recomendacao.porque.hipoteses %}<div class="hip">{{ h.texto }} <span class="grey">({{ h.confianca }})</span></div>{% endfor %}
+  </div>
+
+  {% set fn = d.funnel %}
+  <div class="card">
+    <h3>Funil ({{ period }} dias) — nível ad group</h3>
+    <div class="kpis">
+      <div class="k"><div class="v">{{ '{:,}'.format(fn.prints).replace(',', '.') }}</div><div class="l">impressões</div></div>
+      <div class="k"><div class="v">{{ fn.clicks }}</div><div class="l">cliques · CTR {{ fn.ctr }}% · CPC {{ fn.cpc | brl }}</div></div>
+      <div class="k"><div class="v">{{ fn.ads_units }}</div><div class="l">un. atribuídas · CVR {{ fn.cvr }}%</div></div>
+      <div class="k"><div class="v">{{ fn.ads_revenue | brl }}</div><div class="l">receita atribuída · ACOS {{ fn.acos }}%</div></div>
+    </div>
+    <div class="note" style="margin-top:8px">
+      receita real dos SKUs (orders) {{ fn.real_revenue | brl }} · orgânica {{ fn.organic_revenue | brl }} ({{ fn.organic_share_pct }}%) · TACOS {{ fn.tacos }}%
+      {% if fn.attribution_exceeds_real %}<span class="orange"> · receita atribuída &gt; receita real (venda assistida de outros produtos)</span>{% endif %}
+    </div>
+  </div>
+
+  {% set e = d.finance %}
+  {% if e %}
+  <div class="card">
+    <h3>Camada financeira — as duas lentes</h3>
+    <div class="lens">
+      <div>
+        <h4>Blended (receita real total dos SKUs)</h4>
+        <div class="line"><span>Lucro antes de Ads</span><b>{{ e.lucro_antes_ads | brl }}</b></div>
+        <div class="line"><span>Custo de Ads</span><b>− {{ e.ads_cost | brl }}</b></div>
+        <div class="line"><span>Lucro depois de Ads</span><b>{{ e.lucro_depois_ads | brl }}</b></div>
+        <div class="line"><span>Margem depois de Ads</span><b>{{ e.margem_depois_ads_pct }}% <span class="grey">(meta {{ e.margem_alvo_pct }}%)</span></b></div>
+        <div class="line"><span>TACOS / máximo p/ meta</span><b>{{ e.tacos_pct }}% / {{ e.tacos_maximo_operacional_pct }}%</b></div>
+        <div class="line"><span>Fecha no total?</span><b class="{{ 'green' if e.atinge_meta_blended else 'red' }}">{{ 'SIM' if e.atinge_meta_blended else 'NÃO' }}</b></div>
+      </div>
+      <div>
+        <h4>Ad (receita atribuída ao Ads)</h4>
+        <div class="line"><span>ROAS realizado</span><b>{{ e.roas_realizado }}</b></div>
+        <div class="line"><span>ROAS de equilíbrio</span><b>{{ e.roas_equilibrio }}</b></div>
+        <div class="line"><span>ROAS mínimo operacional</span><b>{{ e.roas_minimo_operacional }}</b></div>
+        <div class="line"><span>Ads auto-suficiente na meta?</span><b class="{{ 'green' if e.ads_auto_suficiente_na_meta else 'red' }}">{{ 'SIM' if e.ads_auto_suficiente_na_meta else 'NÃO' }}</b></div>
+      </div>
+    </div>
+    {% if e.custo_incompleto %}<div class="note red" style="margin-top:8px">{{ e.itens_sem_custo | length }} SKU(s) com venda sem custo cadastrado — margem parcial.</div>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3>Diagnóstico — FATO vs. HIPÓTESE</h3>
+    {% for f in d.diagnostico.fatos_gerais %}<div class="fato">{{ f }}</div>{% endfor %}
+    {% for c in d.diagnostico.casos %}
+      <div class="caso-h">Caso <span class="tag">{{ c.caso }}</span> — {{ c.nome }}
+        {% if c.caso == d.diagnostico.caso_primario %}<span class="grey">(primário)</span>{% endif %}</div>
+      {% if not c.avaliavel %}<div class="grey" style="font-size:12px">não avaliável: {{ c.motivo_nao_avaliavel }}</div>
+      {% else %}
+        {% for f in c.fatos %}<div class="fato">{{ f }}</div>{% endfor %}
+        {% for h in c.hipoteses %}<div class="hip">{{ h.texto }} <span class="grey">({{ h.confianca }})</span></div>{% endfor %}
+        <div class="note" style="margin-top:4px">→ {{ c.acao_sugerida }}</div>
+      {% endif %}
+    {% endfor %}
+    <div class="note" style="margin-top:10px">
+      estágio do produto/ad group: {% if d.diagnostico.estagio.avaliavel %}avaliável{% else %}{{ d.diagnostico.estagio.motivo }}{% endif %}
+      · grupo criado em {{ d.ad_group.date_created_ml }}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Série diária</h3>
+    <canvas id="ch"></canvas>
+  </div>
+
+  {% endif %} {# serving #}
+
+  {# ── SKUs do ad group — camada financeira individual ── #}
+  {% if d.serving %}
+  <div class="card">
+    <h3>SKUs deste ad group ({{ d.n_itens }})</h3>
+    {% if not d.sku_level %}
+    <div class="warn">
+      Este ad group é <b>{{ d.ad_group.type }}</b> — a métrica de Ads (impressão/clique/investimento) é do grupo inteiro,
+      <b>não separável por SKU</b>. A camada financeira abaixo é por SKU (vendas reais + custo), mas a performance de Ads
+      individual de cada SKU o Mercado Livre não expõe.
+    </div>
+    {% endif %}
+    <table>
+      <thead><tr>
+        <th>SKU</th><th>Título</th><th>Reput.</th><th>Buy box</th><th>Un. vendidas (real)</th>
+        <th>Receita (real)</th><th>Lucro antes Ads</th><th>Margem antes Ads</th>
+      </tr></thead>
+      <tbody>
+      {% for it in d.itens %}
+      <tr>
+        <td><a href="{{ ('https://produto.mercadolivre.com.br/' ~ it.item_id) }}" target="_blank">{{ it.item_id }}</a></td>
+        <td>{{ it.title or it.user_product_id or '—' }}</td>
+        <td>{{ it.current_level or '—' }}</td>
+        <td>{{ 'sim' if it.buy_box_winner else 'não' }}</td>
+        {% if it.has_cost %}
+        <td>{{ it.qty }}</td>
+        <td>{{ it.receita_bruta | brl }}</td>
+        <td class="{{ 'green' if it.lucro_antes_ads and it.lucro_antes_ads > 0 else 'red' }}">{{ it.lucro_antes_ads | brl }}</td>
+        <td>{{ it.margem_antes_ads_pct }}%</td>
+        {% else %}
+        <td colspan="4" class="grey" style="text-align:left">— sem venda no período ou sem custo cadastrado —</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3>Alertas abertos do ad group ({{ d.alertas | length }})</h3>
+    {% if not d.alertas %}<div class="grey">Nenhum.</div>{% endif %}
+    {% for a in d.alertas %}
+    <div class="alert {{ a.severidade }}"><b>{{ a.tipo | replace('_',' ') }}</b> <span class="grey">· {{ a.severidade }}</span><br>
+      <span class="grey" style="font-size:12px">{{ a.evidencia }}</span>
+      {% if a.acao_sugerida %}<br><span style="font-size:12px;font-style:italic">→ {{ a.acao_sugerida }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <h3>Linha do tempo</h3>
+    {% if not d.timeline %}<div class="grey">Nenhum evento.</div>{% endif %}
+    {% for ev in d.timeline %}
+    <div class="tl"><span class="grey">{{ ev.changed_at_iso[:16] | replace('T',' ') }}</span>
+      <span class="{{ 'sys' if ev.source == 'system' else 'man' }}">[{{ ev.source }}]</span>
+      {{ ev.field }}: <b>{{ ev.old_value }}</b> → <b>{{ ev.new_value }}</b>
+      {% if ev.author %}<span class="grey">· {{ ev.author }}{% if ev.motivo %} — {{ ev.motivo }}{% endif %}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</main>
+
+{% if d.serving %}
+<script>
+const L = {{ d.chart.labels | tojson }}, g = "#222", t = "#888";
+new Chart(document.getElementById('ch'), {
+  data:{ labels:L, datasets:[
+    { type:'bar', label:'Investimento (R$)', data:{{ d.chart.cost | tojson }}, backgroundColor:'#455a64', yAxisID:'y' },
+    { type:'line', label:'ROAS', data:{{ d.chart.roas | tojson }}, borderColor:'#4caf50', yAxisID:'y1', tension:.3 },
+    { type:'line', label:'ACOS %', data:{{ d.chart.acos | tojson }}, borderColor:'#f5a623', yAxisID:'y1', tension:.3 },
+  ]},
+  options:{ responsive:true, interaction:{mode:'index'}, plugins:{legend:{labels:{color:t}}},
+    scales:{ x:{grid:{color:g},ticks:{color:t,maxTicksLimit:10}},
+      y:{position:'left',grid:{color:g},ticks:{color:t}},
+      y1:{position:'right',grid:{drawOnChartArea:false},ticks:{color:t}} } }
+});
+</script>
+{% endif %}
+</body>
+</html>

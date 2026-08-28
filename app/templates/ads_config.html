@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AEGIS Ads — Config · {{ account.name }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d0d0d; color: #e0e0e0; }
+  a { color: #f5a623; text-decoration: none; } a:hover { text-decoration: underline; }
+  header { background: #111; border-bottom: 1px solid #222; padding: 16px 32px; display: flex;
+           align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .logo { font-size: 20px; font-weight: 700; letter-spacing: 3px; color: #fff; } .logo span { color: #f5a623; }
+  nav a { margin-left: 16px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+  main { padding: 24px 32px; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 15px; text-transform: uppercase; letter-spacing: 2px; color: #888; margin-bottom: 8px; }
+  .intro { font-size: 12.5px; color: #999; margin-bottom: 18px; line-height: 1.5; }
+  .flash { padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
+  .flash.success { background: #1a3a1a; border: 1px solid #4caf50; color: #a5d6a7; }
+  .flash.error { background: #3a1a1a; border: 1px solid #f44336; color: #ef9a9a; }
+  .grp { background: #141414; border: 1px solid #242424; border-radius: 8px; padding: 16px 18px; margin-bottom: 16px; }
+  .grp h3 { font-size: 13px; color: #fff; margin-bottom: 4px; }
+  .grp .src { font-size: 11px; color: #888; margin-bottom: 10px; }
+  .src .tag { padding: 1px 7px; border-radius: 8px; font-weight: 700; }
+  .tag.seller { background: #3d3413; color: #ffd54f; } .tag.global { background: #16283d; color: #90caf9; }
+  .tag.default { background: #2a2a2a; color: #999; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  textarea { width: 100%; background: #0f0f0f; color: #cfe8cf; border: 1px solid #333; border-radius: 5px;
+             padding: 9px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; min-height: 150px; resize: vertical; }
+  .ref { background: #0f0f0f; border: 1px solid #222; border-radius: 5px; padding: 9px; font-family: ui-monospace, monospace;
+         font-size: 11px; color: #777; white-space: pre-wrap; overflow-x: auto; }
+  .ref h4 { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 6px; font-family: system-ui; }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  select, button { background: #1a1a1a; color: #e0e0e0; border: 1px solid #333; padding: 8px 12px; border-radius: 5px; font-size: 13px; }
+  button { background: #f5a623; color: #111; border: none; font-weight: 700; cursor: pointer; }
+  .glossary { font-size: 11.5px; color: #888; line-height: 1.7; }
+  code { color: #ffd54f; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">AEGIS <span>ADS</span></div>
+  <nav>
+    <a href="/ads/{{ seller_id }}">Cockpit</a>
+    <a href="/ads/{{ seller_id }}/campanhas">Campanhas</a>
+    <a href="/ads/{{ seller_id }}/experimentos">Experimentos</a>
+    <a href="/ads/{{ seller_id }}/config">Config</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Strategy Profile — {{ account.name }}</h1>
+  <div class="intro">
+    Toda regra numérica de estratégia/metodologia vive aqui, não no código. O profile <b>efetivo</b> é
+    <code>DEFAULTS ← profile global ← override do seller</code>. Edite o JSON de cada grupo e salve no
+    <b>profile do seller</b> (só esta conta) ou no <b>global</b> (todas). Chaves que faltarem herdam do nível de baixo.
+    Os engines (régua de amostra, diagnóstico A–E, ROAS mínimo operacional, alertas) leem daqui em tempo real.
+  </div>
+
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}
+  {% endwith %}
+
+  {% for g in d.grupos %}
+  <div class="grp">
+    <h3>{{ g.nome }}</h3>
+    <div class="src">valor efetivo vem de: <span class="tag {{ g.source }}">{{ g.source }}</span></div>
+    <form method="post">
+      <input type="hidden" name="grupo" value="{{ g.nome }}">
+      <div class="two">
+        <div>
+          <textarea name="valor_json" spellcheck="false">{{ g.efetivo_json }}</textarea>
+        </div>
+        <div class="ref">
+          <h4>chaves conhecidas (DEFAULTS) — referência</h4>{{ g.defaults_json }}
+        </div>
+      </div>
+      <div class="row">
+        salvar em:
+        <select name="alvo_profile">
+          <option value="seller">profile do seller ({{ account.name }})</option>
+          <option value="global">profile global (todas as contas)</option>
+        </select>
+        <button type="submit">Salvar {{ g.nome }}</button>
+      </div>
+    </form>
+  </div>
+  {% endfor %}
+
+  <div class="grp">
+    <h3>O que cada grupo controla</h3>
+    <div class="glossary">
+      <b>minimum_sample_rules</b> — gate do diagnóstico: quanto sinal DO ANÚNCIO (cliques / unidades / vendas atribuídas / dias) é preciso pra sair do Caso E. <code>single_order_dominance_pct</code> pega o "16 un de 1 pedido".<br>
+      <b>profit_targets</b> — <code>margem_alvo_pct</code>: margem depois de Ads que a operação quer manter. Alimenta o ROAS mínimo operacional (Finance) nos 3 níveis.<br>
+      <b>diagnostic_rules</b> — limiares dos casos A–E: <code>impression_share_baixo_pct</code>, <code>lost_by_ad_rank_alto_pct</code> (Caso A), <code>ctr_floor_pct</code> (B), <code>cvr_floor_pct</code> + <code>min_clicks_para_conversao</code> (C).<br>
+      <b>risk_limits</b> — Alert Engine: janelas recente/baseline, <code>cpc_spike_factor</code>, <code>spend_pace_factor</code>, <code>clicks_sem_venda</code>, <code>max_acos_pct</code>, teto de orçamento, quedas de CTR/CVR, <code>parou_de_vender_min_prev_units</code>.<br>
+      <b>development_rules / consolidation_rules</b> — transição de estágio NOVO → DESENVOLVIMENTO → CONSOLIDADO → ESCALA. Vêm <code>null</code> de propósito: enquanto não preenchidos, o sistema não sugere transição de estágio automaticamente (spec §8). É aqui que entram os parâmetros do método (ROAS de ramp-up, dias-alvo, regra de escala de verba).
+    </div>
+  </div>
+</main>
+</body>
+</html>

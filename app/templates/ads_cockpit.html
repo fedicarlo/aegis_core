@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AEGIS Ads — {{ account.name }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d0d0d; color: #e0e0e0; }
+  a { color: #f5a623; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { background: #111; border-bottom: 1px solid #222; padding: 16px 32px;
+           display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .logo { font-size: 20px; font-weight: 700; letter-spacing: 3px; color: #fff; }
+  .logo span { color: #f5a623; }
+  nav a { margin-left: 18px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+  select { background: #1a1a1a; color: #e0e0e0; border: 1px solid #333; padding: 6px 10px; border-radius: 5px; }
+  main { padding: 28px 32px; max-width: 1280px; margin: 0 auto; }
+  .row { display: grid; gap: 16px; margin-bottom: 22px; }
+  .cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .cols-4 { grid-template-columns: repeat(4, 1fr); }
+  .card { background: #141414; border: 1px solid #242424; border-radius: 8px; padding: 16px 18px; }
+  .card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #666; margin-bottom: 12px; }
+  .kpi { font-size: 26px; font-weight: 700; color: #fff; }
+  .kpi.sm { font-size: 19px; }
+  .sub { font-size: 12px; color: #888; margin-top: 4px; }
+  .green { color: #4caf50; } .orange { color: #f5a623; } .red { color: #ef5350; } .blue { color: #64b5f6; } .grey { color: #888; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700;
+           text-transform: uppercase; letter-spacing: 1px; }
+  .b-SAUDAVEL { background: #143d14; color: #81c784; border: 1px solid #2e7d32; }
+  .b-ATENCAO  { background: #3d3413; color: #ffd54f; border: 1px solid #f5a623; }
+  .b-CRITICO  { background: #3d1414; color: #ef9a9a; border: 1px solid #c62828; }
+  .b-APRENDIZADO { background: #16283d; color: #90caf9; border: 1px solid #1976d2; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 9px 10px; border-bottom: 1px solid #222; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; }
+  tr:hover td { background: #181818; }
+  .pill { font-size: 10px; padding: 2px 8px; border-radius: 12px; font-weight: 700; }
+  .p-VEICULANDO { background: #143d14; color: #81c784; }
+  .p-NAO_VEICULANDO { background: #2a2a2a; color: #888; }
+  .p-COM_GARGALO { background: #3d3413; color: #ffd54f; }
+  .p-SAUDAVEL { background: #143d14; color: #81c784; }
+  .p-APRENDIZADO { background: #16283d; color: #90caf9; }
+  .alert { border-left: 3px solid; padding: 10px 14px; margin-bottom: 8px; background: #161616; border-radius: 4px; font-size: 13px; }
+  .alert.critico { border-color: #c62828; }
+  .alert.atencao { border-color: #f5a623; }
+  .alert.info { border-color: #1976d2; }
+  .alert .t { font-weight: 700; color: #fff; }
+  .alert .ev { color: #999; font-size: 12px; margin-top: 3px; }
+  .alert .ac { color: #bbb; font-size: 12px; margin-top: 4px; font-style: italic; }
+  .filters { display: flex; gap: 6px; margin-bottom: 20px; }
+  .filters a { padding: 6px 12px; border: 1px solid #333; border-radius: 5px; font-size: 12px; color: #aaa; }
+  .filters a.active { background: #f5a623; color: #111; border-color: #f5a623; font-weight: 700; }
+  .note { font-size: 11px; color: #666; margin-top: 6px; }
+  .lens { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .lens > div { background: #101010; border: 1px solid #222; border-radius: 6px; padding: 12px 14px; }
+  .lens h4 { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #777; margin-bottom: 8px; }
+  .lens .line { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
+  .lens .line b { color: #fff; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">AEGIS <span>ADS</span></div>
+  <div>
+    conta:
+    <select onchange="location.href='/ads/'+this.value+'?period={{ period }}'">
+      {% for a in authorized %}
+      <option value="{{ a.seller_id }}" {{ 'selected' if a.seller_id|string == seller_id|string }}>{{ a.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <nav>
+    <a href="/ads/{{ seller_id }}">Cockpit</a>
+    <a href="/ads/{{ seller_id }}/campanhas?period={{ period }}">Campanhas</a>
+    <a href="/ads/{{ seller_id }}/experimentos">Experimentos</a>
+    <a href="/ads/{{ seller_id }}/config">Config</a>
+    <a href="/dashboard?account={{ account.name }}">← Dashboard</a>
+  </nav>
+</header>
+
+<main>
+  <div class="filters">
+    {% for p in periods %}
+    <a href="?period={{ p }}" class="{{ 'active' if p == period }}">{{ p }}d</a>
+    {% endfor %}
+    <span class="note" style="align-self:center;margin-left:10px">
+      janela: {{ d.window.from }} a {{ d.window.to }} (exclui hoje — não fechado)
+    </span>
+  </div>
+
+  <div class="row cols-3" style="align-items:start">
+    <div class="card">
+      <h3>Status geral</h3>
+      <span class="badge b-{{ d.status_geral }}">{{ d.status_geral }}</span>
+      <div class="note">
+        nunca calculado por métrica isolada — combina alertas + diagnóstico das campanhas.<br>
+        profile: régua={{ d.profile_source.minimum_sample_rules }},
+        metas={{ d.profile_source.profit_targets }},
+        limites={{ d.profile_source.risk_limits }}
+      </div>
+    </div>
+    <div class="card">
+      <h3>Investimento</h3>
+      <div style="display:flex;justify-content:space-between">
+        <div><div class="kpi sm">{{ d.investimento.ontem | brl }}</div><div class="sub">ontem</div></div>
+        <div><div class="kpi sm">{{ d.investimento.d7 | brl }}</div><div class="sub">7 dias</div></div>
+        <div><div class="kpi sm orange">{{ d.investimento.d30 | brl }}</div><div class="sub">{{ period }} dias</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>ROAS — objetivo vs. realizado</h3>
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div><div class="kpi">{{ d.funil.roas_realizado if d.funil.roas_realizado is not none else '—' }}</div><div class="sub">realizado</div></div>
+        <div><div class="kpi sm grey">{{ d.roas_objetivo if d.roas_objetivo is not none else '—' }}</div><div class="sub">objetivo (média pond.)</div></div>
+        <div><div class="kpi sm {{ 'green' if d.economia.ads_auto_suficiente_na_meta else 'orange' }}">{{ d.economia.roas_minimo_operacional if d.economia.roas_minimo_operacional is not none else '—' }}</div><div class="sub">mín. operacional</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:22px">
+    <h3>Funil ({{ period }} dias)</h3>
+    <div class="row cols-4" style="margin-bottom:0">
+      <div><div class="kpi sm">{{ '{:,}'.format(d.funil.prints).replace(',', '.') }}</div><div class="sub">impressões</div></div>
+      <div><div class="kpi sm">{{ '{:,}'.format(d.funil.clicks).replace(',', '.') }}</div><div class="sub">cliques · CTR {{ d.funil.ctr if d.funil.ctr is not none else '—' }}% · CPC {{ d.funil.cpc | brl }}</div></div>
+      <div><div class="kpi sm">{{ d.funil.ads_units }}</div><div class="sub">unidades atribuídas ao Ads</div></div>
+      <div><div class="kpi sm">{{ d.funil.organic_units_reais }}</div><div class="sub">unidades sem Ads (orders − atribuídas)</div></div>
+    </div>
+    <div class="row cols-4" style="margin-top:14px;margin-bottom:0">
+      <div><div class="kpi sm">{{ d.funil.ads_revenue | brl }}</div><div class="sub">receita atribuída</div></div>
+      <div><div class="kpi sm">{{ d.funil.real_revenue | brl }}</div><div class="sub">receita total real (orders)</div></div>
+      <div><div class="kpi sm">{{ d.funil.acos if d.funil.acos is not none else '—' }}%</div><div class="sub">ACOS</div></div>
+      <div><div class="kpi sm">{{ d.economia.tacos_pct if d.economia.tacos_pct is not none else '—' }}%</div><div class="sub">TACOS</div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:22px">
+    <h3>Economia — as duas lentes</h3>
+    <div class="lens">
+      <div>
+        <h4>Blended — a operação fecha na meta?</h4>
+        <div class="line"><span>Lucro antes de Ads</span><b>{{ d.economia.lucro_antes_ads | brl }}</b></div>
+        <div class="line"><span>Custo de Ads</span><b>− {{ d.economia.ads_cost | brl }}</b></div>
+        <div class="line"><span>Lucro depois de Ads</span><b class="{{ 'green' if d.economia.atinge_meta_blended else 'orange' }}">{{ d.economia.lucro_depois_ads | brl }}</b></div>
+        <div class="line"><span>Margem depois de Ads</span><b>{{ d.economia.margem_depois_ads_pct }}% <span class="grey">(meta {{ d.economia.margem_alvo_pct }}%)</span></b></div>
+        <div class="line"><span>TACOS vs. máximo p/ meta</span><b>{{ d.economia.tacos_pct }}% / {{ d.economia.tacos_maximo_operacional_pct }}%</b></div>
+        <div class="line"><span>Atinge a meta no total?</span><b class="{{ 'green' if d.economia.atinge_meta_blended else 'red' }}">{{ 'SIM' if d.economia.atinge_meta_blended else 'NÃO' }}</b></div>
+      </div>
+      <div>
+        <h4>Ad — o Ads se paga sozinho na meta?</h4>
+        <div class="line"><span>ROAS realizado</span><b>{{ d.economia.roas_realizado }}</b></div>
+        <div class="line"><span>ROAS de equilíbrio</span><b>{{ d.economia.roas_equilibrio }}</b></div>
+        <div class="line"><span>ROAS mínimo operacional</span><b>{{ d.economia.roas_minimo_operacional }}</b></div>
+        <div class="line"><span>Ads auto-suficiente na meta?</span><b class="{{ 'green' if d.economia.ads_auto_suficiente_na_meta else 'red' }}">{{ 'SIM' if d.economia.ads_auto_suficiente_na_meta else 'NÃO' }}</b></div>
+        {% if d.economia.ads_auto_suficiente_na_meta is sameas false and d.economia.atinge_meta_blended %}
+        <div class="note orange" style="margin-top:8px">O total fecha, mas o orgânico está subsidiando o Ads.</div>
+        {% endif %}
+      </div>
+    </div>
+    {% if d.economia.custo_incompleto %}
+    <div class="note red">Atenção: SKUs com venda sem custo cadastrado — margem parcial.</div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="margin-bottom:22px">
+    <h3>Alertas abertos ({{ d.alertas_abertos | length }})</h3>
+    {% if not d.alertas_abertos %}
+    <div class="note">Nenhum alerta aberto no período.</div>
+    {% endif %}
+    {% for a in d.alertas_abertos %}
+    <div class="alert {{ a.severidade }}">
+      <div class="t">{{ a.tipo | replace('_', ' ') }} <span class="grey">· {{ a.scope }} {{ a.target_id }} · {{ a.severidade }}</span></div>
+      <div class="ev">{{ a.evidencia }}</div>
+      {% if a.acao_sugerida %}<div class="ac">→ {{ a.acao_sugerida }}</div>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <h3>Campanhas</h3>
+    <table>
+      <thead><tr>
+        <th>Campanha</th><th>Estado</th><th>Diagnóstico</th><th>Impr. share</th>
+        <th>Investimento</th><th>Receita atrib.</th><th>ACOS</th><th>ROAS</th>
+      </tr></thead>
+      <tbody>
+      {% for c in d.campanhas %}
+      <tr onclick="location.href='/ads/{{ seller_id }}/campanha/{{ c.campaign_id }}?period={{ period }}'" style="cursor:pointer">
+        <td>{{ c.name }} <span class="grey">({{ c.status_ml }})</span></td>
+        <td><span class="pill p-{{ 'VEICULANDO' if c.serving else 'NAO_VEICULANDO' }}">{{ 'veicula' if c.serving else 'não veicula' }}</span></td>
+        <td>
+          <span class="pill p-{{ c.diag_status }}">{{ c.diag_status | replace('_',' ') | lower }}</span>
+          {% if c.caso_primario %}<span class="grey"> · caso {{ c.caso_primario }}</span>{% endif %}
+        </td>
+        <td>{{ c.impression_share_pct ~ '%' if c.impression_share_pct is not none else '—' }}</td>
+        <td>{{ c.cost | brl }}</td>
+        <td>{{ c.ads_revenue | brl }}</td>
+        <td>{{ c.acos ~ '%' if c.acos is not none else '—' }}</td>
+        <td>{{ c.roas if c.roas is not none else '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="note">Clique numa campanha para o detalhe (funil, impression share, série diária, timeline).</div>
+  </div>
+</main>
+</body>
+</html>

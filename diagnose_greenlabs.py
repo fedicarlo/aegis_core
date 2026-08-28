@@ -243,38 +243,88 @@ def summarize_full(enriched_items: list) -> dict:
 
 
 # ── 6. Ads / Product Ads (Mercado Ads) — endpoint não implementado no sistema
+#
+# NOTA (2026-08): a rota antiga /advertising/advertisers/{id}/product_ads/campaigns
+# foi descontinuada em fev/2026. Fluxo novo (api-version: 2), confirmado ao vivo
+# contra a conta Maximus:
+#   1. GET /advertising/advertisers?product_id=PADS            -> advertiser_id + site_id
+#   2. GET /advertising/{site}/advertisers/{adv}/product_ads/campaigns/search
+#          ?date_from&date_to&metrics=...&metrics_summary=true  -> campanhas + métricas
+#   3. GET /advertising/{site}/product_ads/campaigns/{id}
+#          ?metrics=...(+impression_share...)&aggregation_type=DAILY  -> histórico diário
+#   4. GET /advertising/{site}/advertisers/{adv}/product_ads/ad_groups/search
+#          [?filters[campaign_id]= | ?filters[item_ids]=]       -> ad groups (produto/família/item)
+#   5. GET /advertising/{site}/product_ads/campaigns/{id}/ad_groups/metrics
+#          ?filters[ad_group_ids]=...&date_from&date_to&metrics=...  -> métricas por ad_group
+# Granularidade mínima de métrica = ad_group_id (NÃO por item_id). Só ad_group_type=ITEM
+# é 1:1 com um anúncio; CATALOG/FAMILY agrupam vários item_ids.
+
+_ADS_METRICS = (
+    "clicks,prints,ctr,cost,cpc,acos,cvr,roas,sov,"
+    "direct_units_quantity,indirect_units_quantity,units_quantity,"
+    "direct_amount,indirect_amount,total_amount"
+)
+
 
 def collect_ads(token: str) -> dict:
-    result = {"advertisers": [], "campaigns": [], "errors": []}
+    from datetime import date, timedelta
+
+    result = {"advertisers": [], "campaigns": [], "ad_groups": [], "errors": []}
 
     adv_data, status, err = safe_get(
         f"{MELI_API_URL}/advertising/advertisers",
         token,
         params={"product_id": "PADS"},
-        extra_headers={"Api-Version": "2"},
+        extra_headers={"Api-Version": "1"},
     )
     if status != 200 or adv_data is None:
         result["errors"].append({"step": "advertisers", "status": status, "error": err})
         return result
 
-    advertisers = adv_data.get("advertisers", adv_data) if isinstance(adv_data, dict) else adv_data
+    advertisers = adv_data.get("advertisers", []) if isinstance(adv_data, dict) else []
     result["advertisers"] = advertisers or []
+
+    date_to = date.today().isoformat()
+    date_from = (date.today() - timedelta(days=30)).isoformat()
 
     for adv in result["advertisers"]:
         adv_id = adv.get("advertiser_id")
+        site = adv.get("site_id", "MLB")
+
         camp_data, cstatus, cerr = safe_get(
-            f"{MELI_API_URL}/advertising/advertisers/{adv_id}/product_ads/campaigns",
+            f"{MELI_API_URL}/advertising/{site}/advertisers/{adv_id}"
+            f"/product_ads/campaigns/search",
             token,
-            extra_headers={"Api-Version": "1"},
+            params={
+                "limit": 50, "offset": 0,
+                "date_from": date_from, "date_to": date_to,
+                "metrics": _ADS_METRICS, "metrics_summary": "true",
+            },
+            extra_headers={"api-version": "2"},
         )
         if cstatus != 200 or camp_data is None:
             result["errors"].append({
-                "step": "campaigns", "advertiser_id": adv_id,
+                "step": "campaigns/search", "advertiser_id": adv_id,
                 "status": cstatus, "error": cerr,
             })
             continue
-        campaigns = camp_data.get("results", []) if isinstance(camp_data, dict) else camp_data
+        campaigns = camp_data.get("results", []) if isinstance(camp_data, dict) else []
         result["campaigns"].extend(campaigns or [])
+
+        ag_data, agstatus, agerr = safe_get(
+            f"{MELI_API_URL}/advertising/{site}/advertisers/{adv_id}"
+            f"/product_ads/ad_groups/search",
+            token,
+            params={"limit": 100, "offset": 0},
+            extra_headers={"api-version": "2"},
+        )
+        if agstatus == 200 and isinstance(ag_data, dict):
+            result["ad_groups"].extend(ag_data.get("results", []) or [])
+        else:
+            result["errors"].append({
+                "step": "ad_groups/search", "advertiser_id": adv_id,
+                "status": agstatus, "error": agerr,
+            })
 
     return result
 
@@ -390,7 +440,8 @@ def print_summary(output: dict, output_path: str) -> None:
     ads = output.get("ads") or {}
     print(
         f"Ads — anunciantes: {len(ads.get('advertisers') or [])}, "
-        f"campanhas: {len(ads.get('campaigns') or [])}"
+        f"campanhas: {len(ads.get('campaigns') or [])}, "
+        f"ad groups: {len(ads.get('ad_groups') or [])}"
     )
     if ads.get("errors"):
         print(f"  (avisos ads: {ads['errors']})")

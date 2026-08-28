@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AEGIS Ads — Campanhas · {{ account.name }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d0d0d; color: #e0e0e0; }
+  a { color: #f5a623; text-decoration: none; } a:hover { text-decoration: underline; }
+  header { background: #111; border-bottom: 1px solid #222; padding: 16px 32px;
+           display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .logo { font-size: 20px; font-weight: 700; letter-spacing: 3px; color: #fff; }
+  .logo span { color: #f5a623; }
+  nav a { margin-left: 18px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+  select { background: #1a1a1a; color: #e0e0e0; border: 1px solid #333; padding: 6px 10px; border-radius: 5px; }
+  main { padding: 24px 32px; max-width: 1600px; margin: 0 auto; }
+  h1 { font-size: 15px; text-transform: uppercase; letter-spacing: 2px; color: #888; margin-bottom: 16px; }
+  .filters { display: flex; gap: 6px; margin-bottom: 18px; align-items: center; flex-wrap: wrap; }
+  .filters a { padding: 6px 12px; border: 1px solid #333; border-radius: 5px; font-size: 12px; color: #aaa; }
+  .filters a.active { background: #f5a623; color: #111; border-color: #f5a623; font-weight: 700; }
+  .note { font-size: 11px; color: #666; }
+  .wrap { overflow-x: auto; border: 1px solid #242424; border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+  th, td { text-align: right; padding: 9px 11px; border-bottom: 1px solid #202020; }
+  th:first-child, td:first-child { text-align: left; position: sticky; left: 0; background: #141414; }
+  thead th { position: sticky; top: 0; background: #161616; font-size: 10px; text-transform: uppercase;
+             letter-spacing: .5px; color: #777; z-index: 2; }
+  thead th:first-child { z-index: 3; }
+  tbody tr:hover td { background: #1b1b1b; }
+  tbody tr:hover td:first-child { background: #1b1b1b; }
+  .grey { color: #888; } .green { color: #4caf50; } .orange { color: #f5a623; } .red { color: #ef5350; }
+  .pill { font-size: 10px; padding: 2px 8px; border-radius: 12px; font-weight: 700; }
+  .p-VEICULANDO { background: #143d14; color: #81c784; }
+  .p-NAO_VEICULANDO { background: #2a2a2a; color: #888; }
+  .p-COM_GARGALO { background: #3d3413; color: #ffd54f; }
+  .p-SAUDAVEL { background: #143d14; color: #81c784; }
+  .p-APRENDIZADO { background: #16283d; color: #90caf9; }
+  .caso { font-weight: 700; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">AEGIS <span>ADS</span></div>
+  <div>
+    conta:
+    <select onchange="location.href='/ads/'+this.value+'/campanhas?period={{ period }}'">
+      {% for a in authorized %}
+      <option value="{{ a.seller_id }}" {{ 'selected' if a.seller_id|string == seller_id|string }}>{{ a.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <nav>
+    <a href="/ads/{{ seller_id }}">Cockpit</a>
+    <a href="/ads/{{ seller_id }}/campanhas?period={{ period }}">Campanhas</a>
+    <a href="/ads/{{ seller_id }}/experimentos">Experimentos</a>
+    <a href="/ads/{{ seller_id }}/config">Config</a>
+    <a href="/dashboard?account={{ account.name }}">← Dashboard</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Campanhas — {{ account.name }}</h1>
+  <div class="filters">
+    {% for p in periods %}
+    <a href="?period={{ p }}{{ '&desde_ultima_alteracao=1' if desde_ultima_alteracao }}" class="{{ 'active' if p == period }}">{{ p }}d</a>
+    {% endfor %}
+    <a href="?period={{ period }}{{ '' if desde_ultima_alteracao else '&desde_ultima_alteracao=1' }}"
+       class="{{ 'active' if desde_ultima_alteracao }}" title="corta a janela na data da última alteração de meta/orçamento">
+       desde última alteração</a>
+    <span class="note">janela por campanha na coluna «período efetivo». Impression share / perda por classificação/orçamento só existem no nível de campanha.</span>
+  </div>
+
+  <div class="wrap">
+  <table>
+    <thead><tr>
+      <th>Campanha</th>
+      <th>Estado</th><th>Diagnóstico</th>
+      <th>Estratégia</th><th>Orçamento/dia</th><th>ROAS-alvo</th>
+      <th>Período efetivo</th>
+      <th>Impressões</th><th>Cliques</th><th>CTR</th><th>CPC</th>
+      <th>Investimento</th><th>Un. Ads</th><th>Rec. atrib.</th><th>Rec. real</th>
+      <th>ACOS</th><th>ROAS</th><th>TACOS</th>
+      <th>Impr. share</th><th>Perda classif.</th><th>Perda orçam.</th>
+      <th>Margem pós-Ads</th><th>Fecha (blended)</th><th>Ads sozinho</th><th>ROAS mín. op.</th>
+    </tr></thead>
+    <tbody>
+    {% for c in rows %}
+    <tr onclick="location.href='/ads/{{ seller_id }}/campanha/{{ c.campaign_id }}?period={{ period }}{{ '&desde_ultima_alteracao=1' if desde_ultima_alteracao }}'" style="cursor:pointer">
+      <td>{{ c.name }} <span class="grey">({{ c.status_ml }})</span></td>
+      <td><span class="pill p-{{ 'VEICULANDO' if c.serving else 'NAO_VEICULANDO' }}">{{ 'veicula' if c.serving else (c.not_serving_reason or 'não veicula') }}</span></td>
+      <td><span class="pill p-{{ c.diag_status }}">{{ c.diag_status|replace('_',' ')|lower }}</span>{% if c.caso_primario %} <span class="caso orange">{{ c.caso_primario }}</span>{% endif %}</td>
+      <td>{{ c.strategy or '—' }}</td>
+      <td>{{ c.budget | brl }}</td>
+      <td>{{ c.roas_target if c.roas_target is not none else '—' }}</td>
+      <td class="grey">{{ c.window.effective_from }}…{{ c.window.effective_to }}{% if c.window.clamped_by_last_change %} ✂{% endif %}</td>
+      {% if c.serving %}
+      <td>{{ '{:,}'.format(c.prints).replace(',', '.') }}</td>
+      <td>{{ '{:,}'.format(c.clicks).replace(',', '.') }}</td>
+      <td>{{ c.ctr if c.ctr is not none else '—' }}%</td>
+      <td>{{ c.cpc | brl }}</td>
+      <td>{{ c.cost | brl }}</td>
+      <td>{{ c.ads_units }}</td>
+      <td>{{ c.ads_revenue | brl }}</td>
+      <td>{{ c.real_revenue | brl }}</td>
+      <td>{{ c.acos if c.acos is not none else '—' }}%</td>
+      <td>{{ c.roas if c.roas is not none else '—' }}</td>
+      <td>{{ c.tacos if c.tacos is not none else '—' }}%</td>
+      <td>{{ c.impression_share_pct ~ '%' if c.impression_share_pct is not none else '—' }}</td>
+      <td class="{{ 'orange' if c.lost_by_ad_rank_pct and c.lost_by_ad_rank_pct > 40 }}">{{ c.lost_by_ad_rank_pct ~ '%' if c.lost_by_ad_rank_pct is not none else '—' }}</td>
+      <td class="{{ 'orange' if c.lost_by_budget_pct and c.lost_by_budget_pct > 20 }}">{{ c.lost_by_budget_pct ~ '%' if c.lost_by_budget_pct is not none else '—' }}</td>
+      <td>{{ c.margem_depois_ads_pct ~ '%' if c.margem_depois_ads_pct is not none else '—' }}</td>
+      <td class="{{ 'green' if c.atinge_meta_blended else 'red' }}">{{ 'sim' if c.atinge_meta_blended else 'não' }}</td>
+      <td class="{{ 'green' if c.ads_auto_suficiente_na_meta else 'red' }}">{{ 'sim' if c.ads_auto_suficiente_na_meta else 'não' }}</td>
+      <td>{{ c.roas_minimo_operacional if c.roas_minimo_operacional is not none else '—' }}</td>
+      {% else %}
+      <td colspan="18" class="grey" style="text-align:left">— sem métrica no período ({{ c.not_serving_reason or 'não veicula' }}) —</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</main>
+</body>
+</html>

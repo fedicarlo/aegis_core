@@ -1,3 +1,4 @@
+import json
 import re
 import sqlite3
 import time
@@ -248,12 +249,13 @@ def save_orders(seller_id: str, orders: list) -> dict:
     failed = 0
     for order in orders:
         order_id = str(order.get("id"))
+        buyer_id = str((order.get("buyer") or {}).get("id") or "") or None
         try:
             for item in order.get("order_items", []):
                 conn.execute("""
                     INSERT OR REPLACE INTO orders
-                    (id, seller_id, item_id, quantity, price, date_created, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (id, seller_id, item_id, quantity, price, date_created, status, buyer_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     order_id,
                     seller_id,
@@ -262,6 +264,7 @@ def save_orders(seller_id: str, orders: list) -> dict:
                     item.get("unit_price"),
                     order.get("date_created"),
                     order.get("status"),
+                    buyer_id,
                 ))
             conn.commit()
             saved += 1
@@ -2750,3 +2753,1068 @@ def reconcile_pending_shipments(seller_id: str, tolerance: int = 0) -> int:
     conn.commit()
     conn.close()
     return reconciled
+
+
+# ── Ads Intelligence (Mercado Ads / Product Ads) ──────────────────────────────
+#
+# Fluxo de API pós-migração para Ad Groups, auditado em 27/08/2026 contra a
+# conta Maximus. Ver AEGIS_ADS_INTELLIGENCE_V1.md (seção 5) para a spec.
+#
+# Convenções deste módulo:
+#   - IDs do ML guardados com sufixo *_id_ml (campaign_id_ml, ad_group_id_ml);
+#     as tabelas-filhas referenciam esses IDs do ML, não o surrogate `id`.
+#   - Unidade de análise = ad_group_id. NÃO existe métrica por item_id na API.
+#     `ad_group_items` é a ponte 1→N (1 ad_group → N item_id) para cruzar com
+#     orders/product_costs; `ad_group_type` diz quando o grão == SKU (ITEM).
+#   - Origem do dado por TABELA (não há coluna de proveniência genérica):
+#       SOURCE_API       : advertisers, campaigns, campaign_metrics_daily,
+#                          campaign_metrics_detail, ad_groups, ad_group_items,
+#                          ad_group_metrics_daily (exceto coluna `tacos`)
+#       SOURCE_CALCULATED: campaign_target_snapshots (derivado por diff de coleta),
+#                          ads_events com author='system', coluna ad_group_metrics_daily.tacos
+#       SOURCE_MANUAL    : ads_manual_inputs, ads_strategy_profile,
+#                          ads_events/ads_experiments criados pelo usuário
+#   - Campos de impression share (impression_share / top_impression_share /
+#     lost_impression_share_by_budget / _by_ad_rank / acos_benchmark) só existem
+#     no nível de campanha — por isso campaign_metrics_detail é separada e não há
+#     equivalente em ad_group_metrics_daily. Limitação da API, não omissão.
+#   - `campaign_metrics_detail` guarda só linha diária (uma por date); o "resumo
+#     do período" é agregação no Metrics Engine.
+#   - `ads_strategy_profile`: seller_id = '' significa profile global (default);
+#     linhas com seller_id preenchido são override por conta.
+
+def init_ads_tables():
+    """Cria as tabelas do módulo Ads Intelligence (V1 read-only). Idempotente."""
+    conn = get_conn()
+    c = conn.cursor()
+
+    # ── Advertiser ───────────────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS advertisers (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id       TEXT NOT NULL,
+            advertiser_id   INTEGER NOT NULL,
+            site_id         TEXT,
+            advertiser_name TEXT,
+            account_name    TEXT,
+            updated_at      INTEGER,
+            UNIQUE(seller_id, advertiser_id)
+        )
+    """)
+
+    # ── Campanha ─────────────────────────────────────────────────────────────
+    # acos_target / roas_target / acos_top_search_target / automatic_budget são
+    # SOURCE_API (confirmados no payload real) — guardados no valor corrente aqui
+    # e versionados em campaign_target_snapshots.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS campaigns (
+            id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id_ml         INTEGER NOT NULL,
+            advertiser_id          INTEGER NOT NULL,
+            seller_id              TEXT NOT NULL,
+            name                   TEXT,
+            status                 TEXT,
+            strategy               TEXT,
+            channel                TEXT,
+            budget                 REAL,
+            automatic_budget       INTEGER,
+            currency_id            TEXT,
+            acos_target            REAL,
+            roas_target            REAL,
+            acos_top_search_target REAL,
+            date_created_ml        TEXT,
+            last_updated_ml        TEXT,
+            updated_at             INTEGER,
+            UNIQUE(campaign_id_ml)
+        )
+    """)
+
+    # ── Snapshot diário de meta/orçamento (SOURCE_CALCULATED) ───────────────
+    # Append log. O collector grava só quando algum valor muda vs. o último
+    # snapshot (mesmo padrão de cost_history) e deriva ads_events no diff.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS campaign_target_snapshots (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id  INTEGER NOT NULL,
+            seller_id    TEXT NOT NULL,
+            acos_target  REAL,
+            roas_target  REAL,
+            budget       REAL,
+            status       TEXT,
+            snapshot_at  INTEGER NOT NULL
+        )
+    """)
+
+    # ── Métricas de campanha, série diária (SOURCE_API) ────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS campaign_metrics_daily (
+            id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id              INTEGER NOT NULL,
+            seller_id                TEXT NOT NULL,
+            date                     TEXT NOT NULL,
+            clicks                   INTEGER,
+            prints                   INTEGER,
+            ctr                      REAL,
+            cost                     REAL,
+            cpc                      REAL,
+            acos                     REAL,
+            cvr                      REAL,
+            roas                     REAL,
+            sov                      REAL,
+            direct_units_quantity    INTEGER,
+            indirect_units_quantity  INTEGER,
+            units_quantity           INTEGER,
+            direct_items_quantity    INTEGER,
+            indirect_items_quantity  INTEGER,
+            organic_units_quantity   INTEGER,
+            organic_items_quantity   INTEGER,
+            direct_amount            REAL,
+            indirect_amount          REAL,
+            total_amount             REAL,
+            collected_at             INTEGER,
+            UNIQUE(campaign_id, date)
+        )
+    """)
+
+    # ── Métricas "detalhe de campanha": impression share (SOURCE_API) ──────
+    # Só existe no nível de campanha. Linha diária.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS campaign_metrics_detail (
+            id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id                     INTEGER NOT NULL,
+            seller_id                       TEXT NOT NULL,
+            date                            TEXT NOT NULL,
+            impression_share                REAL,
+            top_impression_share            REAL,
+            lost_impression_share_by_budget REAL,
+            lost_impression_share_by_ad_rank REAL,
+            acos_benchmark                  REAL,
+            collected_at                    INTEGER,
+            UNIQUE(campaign_id, date)
+        )
+    """)
+
+    # ── Ad Group (SOURCE_API) ─────────────────────────────────────────────
+    # campaign_id pode ser 0/NULL (grupos ITEM soltos vêm com campaign_id 0).
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ad_groups (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            ad_group_id_ml       INTEGER NOT NULL,
+            campaign_id          INTEGER,
+            advertiser_id        INTEGER,
+            seller_id            TEXT NOT NULL,
+            ad_group_type        TEXT,
+            ad_group_external_id TEXT,
+            title                TEXT,
+            status               TEXT,
+            domain_id            TEXT,
+            catalog_listing      INTEGER,
+            updated_at           INTEGER,
+            UNIQUE(ad_group_id_ml)
+        )
+    """)
+
+    # ── Ponte ad_group → item_id (SOURCE_API, via /ad_groups/{id}/ads) ────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ad_group_items (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ad_group_id     INTEGER NOT NULL,
+            seller_id       TEXT NOT NULL,
+            item_id         TEXT NOT NULL,
+            family_id       TEXT,
+            user_product_id TEXT,
+            catalog_listing INTEGER,
+            status          TEXT,
+            listing_type_id TEXT,
+            logistic_type   TEXT,
+            buy_box_winner  INTEGER,
+            current_level   TEXT,
+            updated_at      INTEGER,
+            UNIQUE(ad_group_id, item_id)
+        )
+    """)
+
+    # ── Métricas por ad_group, série diária (SOURCE_API; tacos é CALCULATED) ─
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ad_group_metrics_daily (
+            id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+            ad_group_id              INTEGER NOT NULL,
+            campaign_id              INTEGER NOT NULL,
+            seller_id                TEXT NOT NULL,
+            date                     TEXT NOT NULL,
+            clicks                   INTEGER,
+            prints                   INTEGER,
+            cost                     REAL,
+            cpc                      REAL,
+            ctr                      REAL,
+            direct_amount            REAL,
+            indirect_amount          REAL,
+            total_amount             REAL,
+            direct_units_quantity    INTEGER,
+            indirect_units_quantity  INTEGER,
+            units_quantity           INTEGER,
+            direct_items_quantity    INTEGER,
+            indirect_items_quantity  INTEGER,
+            organic_units_quantity   INTEGER,
+            organic_items_quantity   INTEGER,
+            acos                     REAL,
+            sov                      REAL,
+            roas                     REAL,
+            cvr                      REAL,
+            tacos                    REAL,
+            collected_at             INTEGER,
+            UNIQUE(ad_group_id, date)
+        )
+    """)
+
+    # ── Strategy Profile (SOURCE_MANUAL, camada configurável) ─────────────
+    # seller_id = '' -> profile global default. JSON em TEXT.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ads_strategy_profile (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id            TEXT NOT NULL DEFAULT '',
+            name                 TEXT NOT NULL,
+            is_active            INTEGER NOT NULL DEFAULT 1,
+            development_rules    TEXT NOT NULL DEFAULT '{}',
+            consolidation_rules TEXT NOT NULL DEFAULT '{}',
+            risk_limits          TEXT NOT NULL DEFAULT '{}',
+            profit_targets       TEXT NOT NULL DEFAULT '{}',
+            minimum_sample_rules TEXT NOT NULL DEFAULT '{}',
+            diagnostic_rules     TEXT NOT NULL DEFAULT '{}',
+            created_at           INTEGER,
+            updated_at           INTEGER,
+            UNIQUE(seller_id, name)
+        )
+    """)
+    # diagnostic_rules: limiares dos casos A-E do Diagnostic Engine (Etapa 6).
+    # Grupo próprio (não misturar com risk_limits, que é do Alert Engine).
+    existing_sp = {row[1] for row in c.execute("PRAGMA table_info(ads_strategy_profile)").fetchall()}
+    if "diagnostic_rules" not in existing_sp:
+        c.execute("ALTER TABLE ads_strategy_profile ADD COLUMN diagnostic_rules TEXT NOT NULL DEFAULT '{}'")
+    # Linha global default (valores neutros vêm na Etapa 5 — Strategy Engine).
+    c.execute("""
+        INSERT OR IGNORE INTO ads_strategy_profile (seller_id, name, created_at, updated_at)
+        VALUES ('', 'default', ?, ?)
+    """, (int(time.time()), int(time.time())))
+
+    # ── Inputs manuais (SOURCE_MANUAL) ────────────────────────────────────
+    # scope: 'campaign' | 'ad_group' | 'account'; target_id = id do ML (texto)
+    # ou seller_id para scope='account'. Último valor vence (UPSERT).
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ads_manual_inputs (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id  TEXT NOT NULL,
+            scope      TEXT NOT NULL,
+            target_id  TEXT NOT NULL,
+            field_name TEXT NOT NULL,
+            value      TEXT,
+            set_by     TEXT,
+            set_at     INTEGER NOT NULL,
+            UNIQUE(seller_id, scope, target_id, field_name)
+        )
+    """)
+
+    # ── Linha do tempo de eventos (req. 9) ───────────────────────────────
+    # author='system' + source='system' -> derivado de diff de snapshot.
+    # source='manual' -> usuário registrou (motivo/hipótese).
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ads_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id   TEXT NOT NULL,
+            scope       TEXT NOT NULL,
+            target_id   TEXT NOT NULL,
+            changed_at  INTEGER NOT NULL,
+            field       TEXT NOT NULL,
+            old_value   TEXT,
+            new_value   TEXT,
+            author      TEXT,
+            motivo      TEXT,
+            hipotese    TEXT,
+            source      TEXT NOT NULL DEFAULT 'system'
+        )
+    """)
+
+    # ── Experimentos (req. 10) ───────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ads_experiments (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id      TEXT NOT NULL,
+            scope          TEXT NOT NULL,
+            target_id      TEXT NOT NULL,
+            hipotese       TEXT NOT NULL,
+            intervencao    TEXT,
+            janela_inicio  TEXT,
+            janela_fim     TEXT,
+            resultado      TEXT,
+            conclusao      TEXT,
+            status         TEXT NOT NULL DEFAULT 'aberto',
+            created_at     INTEGER NOT NULL,
+            updated_at     INTEGER
+        )
+    """)
+
+    # ── Alertas ──────────────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ads_alerts (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id      TEXT NOT NULL,
+            scope          TEXT NOT NULL,
+            target_id      TEXT NOT NULL,
+            tipo           TEXT NOT NULL,
+            severidade     TEXT NOT NULL,
+            evidencia      TEXT,
+            acao_sugerida  TEXT,
+            dedup_key      TEXT,
+            created_at     INTEGER NOT NULL,
+            resolved_at    INTEGER,
+            UNIQUE(dedup_key)
+        )
+    """)
+
+    # ── Migrations incrementais ─────────────────────────────────────────
+    # orders.buyer_id: compradores únicos p/ régua de amostra.
+    existing_orders = {row[1] for row in c.execute("PRAGMA table_info(orders)").fetchall()}
+    if "buyer_id" not in existing_orders:
+        c.execute("ALTER TABLE orders ADD COLUMN buyer_id TEXT")
+
+    # ad_groups.date_created_ml: data de criação do grupo no ML — alimenta o
+    #   sinal SOURCE_CALCULATED de "grupo novo / em aquecimento".
+    # ad_groups.tags: classificação interna do ML por grupo (ex: TOP-ORDERS, SAD,
+    #   MAX-TGMV, TCI) — JSON array. Vem tanto no ad_groups/search quanto nas
+    #   linhas de ad_groups/metrics.
+    existing_ag = {row[1] for row in c.execute("PRAGMA table_info(ad_groups)").fetchall()}
+    if "date_created_ml" not in existing_ag:
+        c.execute("ALTER TABLE ad_groups ADD COLUMN date_created_ml TEXT")
+    if "tags" not in existing_ag:
+        c.execute("ALTER TABLE ad_groups ADD COLUMN tags TEXT")
+    # is_scaffold: grupo que estruturalmente NÃO é uma unidade de veiculação —
+    #   órfão (fora de qualquer campanha) ou status EMPTY. Definido na coleta.
+    #   Serve pra Metrics/Finance/Diagnostic filtrarem sem reinventar a regra:
+    #   um grupo is_scaffold JAMAIS representa "performance zero", é "não veicula".
+    if "is_scaffold" not in existing_ag:
+        c.execute("ALTER TABLE ad_groups ADD COLUMN is_scaffold INTEGER DEFAULT 0")
+
+    # ── Índices ──────────────────────────────────────────────────────────
+    for ddl in (
+        "CREATE INDEX IF NOT EXISTS ix_campaigns_seller ON campaigns(seller_id)",
+        "CREATE INDEX IF NOT EXISTS ix_camp_metrics_daily ON campaign_metrics_daily(campaign_id, date)",
+        "CREATE INDEX IF NOT EXISTS ix_camp_metrics_detail ON campaign_metrics_detail(campaign_id, date)",
+        "CREATE INDEX IF NOT EXISTS ix_camp_snapshots ON campaign_target_snapshots(campaign_id, snapshot_at)",
+        "CREATE INDEX IF NOT EXISTS ix_ad_groups_campaign ON ad_groups(campaign_id)",
+        "CREATE INDEX IF NOT EXISTS ix_ad_groups_seller ON ad_groups(seller_id)",
+        "CREATE INDEX IF NOT EXISTS ix_ad_group_items_item ON ad_group_items(item_id)",
+        "CREATE INDEX IF NOT EXISTS ix_ad_group_items_group ON ad_group_items(ad_group_id)",
+        "CREATE INDEX IF NOT EXISTS ix_ag_metrics_daily_group ON ad_group_metrics_daily(ad_group_id, date)",
+        "CREATE INDEX IF NOT EXISTS ix_ag_metrics_daily_camp ON ad_group_metrics_daily(campaign_id, date)",
+        "CREATE INDEX IF NOT EXISTS ix_ads_events_target ON ads_events(scope, target_id, changed_at)",
+        "CREATE INDEX IF NOT EXISTS ix_ads_alerts_open ON ads_alerts(seller_id, resolved_at)",
+        "CREATE INDEX IF NOT EXISTS ix_orders_buyer ON orders(buyer_id)",
+    ):
+        c.execute(ddl)
+
+    conn.commit()
+    conn.close()
+
+
+# ── Ads Intelligence — persistência (usada pelo Ads Data Provider) ────────────
+
+_ADS_LOG = _get_logger("database.ads")
+
+# Colunas de métrica gravadas cru da API (SOURCE_API). `tacos` fica de fora de
+# propósito — é SOURCE_CALCULATED, preenchida pelo Metrics Engine (Etapa 4).
+_CAMPAIGN_METRIC_COLS = (
+    "clicks", "prints", "ctr", "cost", "cpc", "acos", "cvr", "roas", "sov",
+    "direct_units_quantity", "indirect_units_quantity", "units_quantity",
+    "direct_items_quantity", "indirect_items_quantity",
+    "organic_units_quantity", "organic_items_quantity",
+    "direct_amount", "indirect_amount", "total_amount",
+)
+_CAMPAIGN_DETAIL_COLS = (
+    "impression_share", "top_impression_share",
+    "lost_impression_share_by_budget", "lost_impression_share_by_ad_rank",
+    "acos_benchmark",
+)
+_AD_GROUP_METRIC_COLS = _CAMPAIGN_METRIC_COLS  # mesmo conjunto (sem impression share)
+
+# Campos versionados em campaign_target_snapshots / ads_events.
+_SNAPSHOT_FIELDS = ("acos_target", "roas_target", "budget", "status")
+
+
+def _ads_upsert(conn, table, conflict_cols, row):
+    """INSERT ... ON CONFLICT(conflict_cols) DO UPDATE — genérico, a partir de um dict."""
+    cols = list(row.keys())
+    ph = ", ".join("?" for _ in cols)
+    sets = ", ".join(f"{c} = excluded.{c}" for c in cols if c not in conflict_cols)
+    sql = (
+        f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({ph}) "
+        f"ON CONFLICT({', '.join(conflict_cols)}) DO UPDATE SET {sets}"
+    )
+    conn.execute(sql, [row[c] for c in cols])
+
+
+def _num(v):
+    """None-safe cast p/ número (a API às vezes manda null / string vazia)."""
+    if v in (None, ""):
+        return None
+    try:
+        f = float(v)
+        return int(f) if f.is_integer() else f
+    except (TypeError, ValueError):
+        return None
+
+
+# ── Advertisers / Campanhas ─────────────────────────────────────────────────
+
+def upsert_ads_advertiser(seller_id, adv):
+    conn = get_conn()
+    _ads_upsert(conn, "advertisers", ("seller_id", "advertiser_id"), {
+        "seller_id": seller_id,
+        "advertiser_id": adv.get("advertiser_id"),
+        "site_id": adv.get("site_id"),
+        "advertiser_name": adv.get("advertiser_name"),
+        "account_name": adv.get("account_name"),
+        "updated_at": int(time.time()),
+    })
+    conn.commit()
+    conn.close()
+
+
+def upsert_ads_campaign(seller_id, advertiser_id, camp):
+    """camp = item de results[] de ads_api.search_campaigns (ou get_campaign_detail)."""
+    conn = get_conn()
+    _ads_upsert(conn, "campaigns", ("campaign_id_ml",), {
+        "campaign_id_ml": camp.get("id"),
+        "advertiser_id": advertiser_id,
+        "seller_id": seller_id,
+        "name": camp.get("name"),
+        "status": camp.get("status"),
+        "strategy": camp.get("strategy"),
+        "channel": camp.get("channel"),
+        "budget": _num(camp.get("budget")),
+        "automatic_budget": 1 if camp.get("automatic_budget") else 0,
+        "currency_id": camp.get("currency_id"),
+        "acos_target": _num(camp.get("acos_target")),
+        "roas_target": _num(camp.get("roas_target")),
+        "acos_top_search_target": _num(camp.get("acos_top_search_target")),
+        "date_created_ml": camp.get("date_created"),
+        "last_updated_ml": camp.get("last_updated"),
+        "updated_at": int(time.time()),
+    })
+    conn.commit()
+    conn.close()
+
+
+def get_last_campaign_snapshot(campaign_id):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT acos_target, roas_target, budget, status FROM campaign_target_snapshots "
+        "WHERE campaign_id = ? ORDER BY snapshot_at DESC LIMIT 1",
+        (campaign_id,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def _fmt_snap(field, value):
+    """Formata um valor de snapshot p/ gravar em ads_events (numérico normalizado)."""
+    if value is None:
+        return None
+    if field == "status":
+        return str(value)
+    n = _num(value)
+    return None if n is None else str(n)
+
+
+def snapshot_campaign_targets(seller_id, campaign_id, current):
+    """
+    Grava um snapshot de meta/orçamento SÓ se algum dos _SNAPSHOT_FIELDS mudou
+    vs. o último snapshot (mesmo padrão de cost_history). Para cada campo que
+    mudou, registra uma linha em ads_events (author/source='system') — MAS só
+    quando já havia um snapshot anterior (a 1a coleta não é "mudança").
+
+    Retorna: {"snapshot_written": bool, "events": [nomes dos campos]}.
+    """
+    current = {f: (_num(current.get(f)) if f != "status" else current.get(f))
+               for f in _SNAPSHOT_FIELDS}
+    last = get_last_campaign_snapshot(campaign_id)
+
+    def _differs(field):
+        if field == "status":
+            return (last.get(field) or "") != (current.get(field) or "")
+        return _num(last.get(field)) != _num(current.get(field))
+
+    if last is None:
+        changed = [f for f in _SNAPSHOT_FIELDS if current.get(f) is not None]
+    else:
+        changed = [f for f in _SNAPSHOT_FIELDS if _differs(f)]
+
+    if not changed:
+        return {"snapshot_written": False, "events": []}
+
+    now = int(time.time())
+    events = [] if last is None else list(changed)
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO campaign_target_snapshots "
+        "(campaign_id, seller_id, acos_target, roas_target, budget, status, snapshot_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (campaign_id, seller_id, current.get("acos_target"), current.get("roas_target"),
+         current.get("budget"), current.get("status"), now),
+    )
+    for f in events:
+        conn.execute(
+            "INSERT INTO ads_events "
+            "(seller_id, scope, target_id, changed_at, field, old_value, new_value, "
+            " author, source) VALUES (?, 'campaign', ?, ?, ?, ?, ?, 'system', 'system')",
+            (seller_id, str(campaign_id), now, f,
+             _fmt_snap(f, last.get(f)), _fmt_snap(f, current.get(f))),
+        )
+    conn.commit()
+    conn.close()
+    return {"snapshot_written": True, "events": events}
+
+
+# ── Métricas diárias ───────────────────────────────────────────────────────
+
+def upsert_campaign_metrics_daily(seller_id, campaign_id, date, metrics):
+    conn = get_conn()
+    row = {"campaign_id": campaign_id, "seller_id": seller_id, "date": date,
+           "collected_at": int(time.time())}
+    for col in _CAMPAIGN_METRIC_COLS:
+        row[col] = _num(metrics.get(col))
+    _ads_upsert(conn, "campaign_metrics_daily", ("campaign_id", "date"), row)
+    conn.commit()
+    conn.close()
+
+
+def upsert_campaign_metrics_detail(seller_id, campaign_id, date, metrics):
+    conn = get_conn()
+    row = {"campaign_id": campaign_id, "seller_id": seller_id, "date": date,
+           "collected_at": int(time.time())}
+    for col in _CAMPAIGN_DETAIL_COLS:
+        row[col] = _num(metrics.get(col))
+    _ads_upsert(conn, "campaign_metrics_detail", ("campaign_id", "date"), row)
+    conn.commit()
+    conn.close()
+
+
+def upsert_ad_group_metrics_daily(seller_id, campaign_id, ad_group_id, date, metrics):
+    conn = get_conn()
+    row = {"ad_group_id": ad_group_id, "campaign_id": campaign_id,
+           "seller_id": seller_id, "date": date, "collected_at": int(time.time())}
+    for col in _AD_GROUP_METRIC_COLS:
+        row[col] = _num(metrics.get(col))
+    _ads_upsert(conn, "ad_group_metrics_daily", ("ad_group_id", "date"), row)
+    conn.commit()
+    conn.close()
+
+
+# ── Ad groups + ponte de itens ─────────────────────────────────────────────
+
+def upsert_ads_ad_group(seller_id, ag, tags=None, is_scaffold=None):
+    """
+    is_scaffold: se None, deriva de (campaign_id ausente) OR (status == 'EMPTY').
+    O collector passa explícito (sabe se o grupo é órfão) — este default é fallback.
+    """
+    status = ag.get("status")
+    if is_scaffold is None:
+        is_scaffold = (not ag.get("campaign_id")) or (str(status).upper() == "EMPTY")
+    conn = get_conn()
+    _ads_upsert(conn, "ad_groups", ("ad_group_id_ml",), {
+        "ad_group_id_ml": ag.get("id"),
+        "campaign_id": ag.get("campaign_id") or None,
+        "advertiser_id": ag.get("advertiser_id"),
+        "seller_id": seller_id,
+        "ad_group_type": ag.get("ad_group_type"),
+        "ad_group_external_id": str(ag.get("ad_group_external_id"))
+        if ag.get("ad_group_external_id") is not None else None,
+        "title": ag.get("title"),
+        "status": status,
+        "domain_id": ag.get("domain_id"),
+        "catalog_listing": 1 if ag.get("catalog_listing") else 0,
+        "date_created_ml": ag.get("date_created"),
+        "tags": json.dumps(tags if tags is not None else ag.get("tags") or [],
+                           ensure_ascii=False),
+        "is_scaffold": 1 if is_scaffold else 0,
+        "updated_at": int(time.time()),
+    })
+    conn.commit()
+    conn.close()
+
+
+def replace_ad_group_items(seller_id, ad_group_id, ads_rows):
+    """
+    Reconcilia a ponte 1→N de um ad group: faz UPSERT dos item_id presentes e
+    APAGA os que não vieram mais na resposta (item saiu do grupo).
+    ads_rows = saída de ads_api.get_ad_group_ads (pode ser [] p/ grupos ITEM).
+    """
+    now = int(time.time())
+    keep = set()
+    conn = get_conn()
+    for r in ads_rows:
+        item_id = r.get("item_id")
+        if not item_id:
+            continue
+        keep.add(str(item_id))
+        _ads_upsert(conn, "ad_group_items", ("ad_group_id", "item_id"), {
+            "ad_group_id": ad_group_id,
+            "seller_id": seller_id,
+            "item_id": str(item_id),
+            "family_id": str(r["family_id"]) if r.get("family_id") is not None else None,
+            "user_product_id": r.get("user_product_id"),
+            "catalog_listing": 1 if r.get("catalog_listing") else 0,
+            "status": r.get("status"),
+            "listing_type_id": r.get("listing_type_id"),
+            "logistic_type": r.get("logistic_type"),
+            "buy_box_winner": 1 if r.get("buy_box_winner") else 0,
+            "current_level": r.get("current_level"),
+            "updated_at": now,
+        })
+    if keep:
+        ph = ", ".join("?" for _ in keep)
+        conn.execute(
+            f"DELETE FROM ad_group_items WHERE ad_group_id = ? AND item_id NOT IN ({ph})",
+            (ad_group_id, *keep),
+        )
+    else:
+        conn.execute("DELETE FROM ad_group_items WHERE ad_group_id = ?", (ad_group_id,))
+    conn.commit()
+    conn.close()
+
+
+# ── Leitura (resumo p/ scripts de validação e Etapa 4+) ───────────────────
+
+def ads_row_counts(seller_id=None):
+    """Contagem por tabela do módulo Ads. Filtra por seller quando aplicável."""
+    tables = (
+        "advertisers", "campaigns", "campaign_target_snapshots",
+        "campaign_metrics_daily", "campaign_metrics_detail", "ad_groups",
+        "ad_group_items", "ad_group_metrics_daily", "ads_strategy_profile",
+        "ads_manual_inputs", "ads_events", "ads_experiments", "ads_alerts",
+    )
+    conn = get_conn()
+    out = {}
+    for t in tables:
+        has_seller = any(r[1] == "seller_id" for r in
+                         conn.execute(f"PRAGMA table_info({t})").fetchall())
+        if seller_id and has_seller:
+            n = conn.execute(f"SELECT COUNT(*) FROM {t} WHERE seller_id = ?",
+                             (seller_id,)).fetchone()[0]
+        else:
+            n = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+        out[t] = n
+    conn.close()
+    return out
+
+
+# ── Ads Intelligence — leitura p/ Metrics / Finance Engine (Etapa 4) ──────────
+
+_SUM_METRIC_COLS = _CAMPAIGN_METRIC_COLS  # somáveis; ratios são recalculados no engine
+
+
+def get_ads_campaign(seller_id, campaign_id):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM campaigns WHERE seller_id = ? AND campaign_id_ml = ?",
+        (seller_id, campaign_id),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_ads_ad_group(seller_id, ad_group_id):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM ad_groups WHERE seller_id = ? AND ad_group_id_ml = ?",
+        (seller_id, ad_group_id),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_campaign_ad_groups(seller_id, campaign_id, *, include_scaffold=True):
+    conn = get_conn()
+    sql = ("SELECT * FROM ad_groups WHERE seller_id = ? AND campaign_id = ?")
+    if not include_scaffold:
+        sql += " AND is_scaffold = 0"
+    rows = conn.execute(sql, (seller_id, campaign_id)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_ad_group_item_ids(seller_id, ad_group_id):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT DISTINCT item_id FROM ad_group_items WHERE seller_id = ? AND ad_group_id = ?",
+        (seller_id, ad_group_id),
+    ).fetchall()
+    conn.close()
+    return [r["item_id"] for r in rows]
+
+
+def get_ad_group_items_full(seller_id, ad_group_id):
+    """Itens do ad group com atributos + título do anúncio (join items) p/ a UI 8d."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT agi.item_id, agi.family_id, agi.user_product_id, agi.catalog_listing, "
+        "       agi.status AS ad_status, agi.listing_type_id, agi.logistic_type, "
+        "       agi.buy_box_winner, agi.current_level, i.title, i.price, i.status AS item_status "
+        "FROM ad_group_items agi "
+        "LEFT JOIN items i ON i.id = agi.item_id AND i.seller_id = agi.seller_id "
+        "WHERE agi.seller_id = ? AND agi.ad_group_id = ? ORDER BY agi.item_id",
+        (seller_id, ad_group_id),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_campaign_item_ids(seller_id, campaign_id, *, include_scaffold=False):
+    """item_id distintos veiculados pela campanha (via seus ad groups não-scaffold)."""
+    conn = get_conn()
+    sql = (
+        "SELECT DISTINCT i.item_id "
+        "FROM ad_group_items i JOIN ad_groups g ON g.ad_group_id_ml = i.ad_group_id "
+        "WHERE g.seller_id = ? AND g.campaign_id = ?"
+    )
+    if not include_scaffold:
+        sql += " AND g.is_scaffold = 0"
+    rows = conn.execute(sql, (seller_id, campaign_id)).fetchall()
+    conn.close()
+    return [r["item_id"] for r in rows]
+
+
+def get_product_costs_map(seller_id, item_ids):
+    """{item_id: {unit_cost, tax_rate, ml_fee_rate, shipping_cost}} p/ os itens que têm custo."""
+    if not item_ids:
+        return {}
+    ph = ", ".join("?" for _ in item_ids)
+    conn = get_conn()
+    rows = conn.execute(
+        f"SELECT item_id, unit_cost, tax_rate, ml_fee_rate, shipping_cost "
+        f"FROM product_costs WHERE seller_id = ? AND variation_id = '' AND item_id IN ({ph})",
+        (seller_id, *item_ids),
+    ).fetchall()
+    conn.close()
+    return {r["item_id"]: {
+        "unit_cost": r["unit_cost"], "tax_rate": r["tax_rate"],
+        "ml_fee_rate": r["ml_fee_rate"], "shipping_cost": r["shipping_cost"],
+    } for r in rows}
+
+
+def _sum_metrics(table, id_col, seller_id, target_id, date_from, date_to):
+    cols = ", ".join(f"COALESCE(SUM({c}), 0) AS {c}" for c in _SUM_METRIC_COLS)
+    conn = get_conn()
+    row = conn.execute(
+        f"SELECT COUNT(*) AS n_days, "
+        f"SUM(CASE WHEN prints > 0 THEN 1 ELSE 0 END) AS days_with_prints, {cols} "
+        f"FROM {table} WHERE seller_id = ? AND {id_col} = ? AND date >= ? AND date <= ?",
+        (seller_id, target_id, date_from, date_to),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def sum_campaign_metrics(seller_id, campaign_id, date_from, date_to):
+    return _sum_metrics("campaign_metrics_daily", "campaign_id",
+                        seller_id, campaign_id, date_from, date_to)
+
+
+def sum_ad_group_metrics(seller_id, ad_group_id, date_from, date_to):
+    return _sum_metrics("ad_group_metrics_daily", "ad_group_id",
+                        seller_id, ad_group_id, date_from, date_to)
+
+
+def get_campaign_impression_share_avg(seller_id, campaign_id, date_from, date_to):
+    """
+    Impression share do período: média ponderada por prints do dia (join
+    detail x daily). acos_benchmark idem. Retorna {} se não há linha de detail.
+    """
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT "
+        "  SUM(d.impression_share * m.prints)              AS is_w, "
+        "  SUM(d.top_impression_share * m.prints)          AS tis_w, "
+        "  SUM(d.lost_impression_share_by_budget * m.prints)   AS lb_w, "
+        "  SUM(d.lost_impression_share_by_ad_rank * m.prints)  AS lr_w, "
+        "  SUM(d.acos_benchmark * m.prints)                AS bench_w, "
+        "  SUM(m.prints)                                   AS prints "
+        "FROM campaign_metrics_detail d "
+        "JOIN campaign_metrics_daily m "
+        "  ON m.campaign_id = d.campaign_id AND m.date = d.date "
+        "WHERE d.seller_id = ? AND d.campaign_id = ? AND d.date >= ? AND d.date <= ?",
+        (seller_id, campaign_id, date_from, date_to),
+    ).fetchone()
+    conn.close()
+    if not row or not row["prints"]:
+        return {}
+    p = row["prints"]
+    return {
+        "impression_share": row["is_w"] / p if row["is_w"] is not None else None,
+        "top_impression_share": row["tis_w"] / p if row["tis_w"] is not None else None,
+        "lost_impression_share_by_budget": row["lb_w"] / p if row["lb_w"] is not None else None,
+        "lost_impression_share_by_ad_rank": row["lr_w"] / p if row["lr_w"] is not None else None,
+        "acos_benchmark": row["bench_w"] / p if row["bench_w"] is not None else None,
+    }
+
+
+def get_campaign_daily_series(seller_id, campaign_id, date_from, date_to):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT m.*, "
+        "  d.impression_share, d.top_impression_share, "
+        "  d.lost_impression_share_by_budget, d.lost_impression_share_by_ad_rank, "
+        "  d.acos_benchmark "
+        "FROM campaign_metrics_daily m "
+        "LEFT JOIN campaign_metrics_detail d "
+        "  ON d.campaign_id = m.campaign_id AND d.date = m.date "
+        "WHERE m.seller_id = ? AND m.campaign_id = ? AND m.date >= ? AND m.date <= ? "
+        "ORDER BY m.date",
+        (seller_id, campaign_id, date_from, date_to),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_ad_group_daily_series(seller_id, ad_group_id, date_from, date_to):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM ad_group_metrics_daily "
+        "WHERE seller_id = ? AND ad_group_id = ? AND date >= ? AND date <= ? ORDER BY date",
+        (seller_id, ad_group_id, date_from, date_to),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_last_campaign_change_date(campaign_id):
+    """Data (YYYY-MM-DD) da última alteração de meta/orçamento/status da campanha,
+    a partir de ads_events (author='system'). None se nunca mudou."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT MAX(changed_at) AS ts FROM ads_events "
+        "WHERE scope = 'campaign' AND target_id = ? AND field IN "
+        "('acos_target','roas_target','budget','status')",
+        (str(campaign_id),),
+    ).fetchone()
+    conn.close()
+    if not row or not row["ts"]:
+        return None
+    return time.strftime("%Y-%m-%d", time.gmtime(int(row["ts"])))
+
+
+def get_orders_agg_for_items(seller_id, item_ids, date_from, date_to):
+    """
+    Agrega vendas REAIS (tabela orders) dos item_ids no período. Datas de orders
+    são convertidas p/ GMT-3 (date(datetime(date_created,'-3 hours'))) pra alinhar
+    com as datas de métrica de Ads (que são GMT-3). Ignora status 'cancelled'.
+
+    Retorna:
+      total: {qty, receita_bruta, orders_count, unique_buyers, buyer_id_disponivel,
+              max_single_order_qty, days_with_orders}
+      by_item: {item_id: {qty, receita_bruta, orders_count}}
+    """
+    empty = {"total": {"qty": 0, "receita_bruta": 0.0, "orders_count": 0,
+                       "unique_buyers": 0, "buyer_id_disponivel": False,
+                       "max_single_order_qty": 0, "days_with_orders": 0},
+             "by_item": {}}
+    if not item_ids:
+        return empty
+    ph = ", ".join("?" for _ in item_ids)
+    args = (seller_id, *item_ids, date_from, date_to)
+    dfilter = (
+        f"seller_id = ? AND item_id IN ({ph}) AND status != 'cancelled' "
+        f"AND date(datetime(date_created, '-3 hours')) >= ? "
+        f"AND date(datetime(date_created, '-3 hours')) <= ?"
+    )
+    conn = get_conn()
+    total = conn.execute(
+        f"SELECT COALESCE(SUM(quantity), 0) AS qty, "
+        f"       COALESCE(SUM(quantity * price), 0) AS receita_bruta, "
+        f"       COUNT(DISTINCT id) AS orders_count, "
+        f"       COUNT(DISTINCT buyer_id) AS unique_buyers, "
+        f"       COUNT(buyer_id) AS n_with_buyer, "
+        f"       COALESCE(MAX(quantity), 0) AS max_single_order_qty, "
+        f"       COUNT(DISTINCT date(datetime(date_created, '-3 hours'))) AS days_with_orders "
+        f"FROM orders WHERE {dfilter}", args,
+    ).fetchone()
+    by_item_rows = conn.execute(
+        f"SELECT item_id, COALESCE(SUM(quantity),0) AS qty, "
+        f"       COALESCE(SUM(quantity*price),0) AS receita_bruta, "
+        f"       COUNT(DISTINCT id) AS orders_count "
+        f"FROM orders WHERE {dfilter} GROUP BY item_id", args,
+    ).fetchall()
+    conn.close()
+
+    t = dict(total)
+    return {
+        "total": {
+            "qty": int(t["qty"]),
+            "receita_bruta": round(float(t["receita_bruta"]), 2),
+            "orders_count": int(t["orders_count"]),
+            "unique_buyers": int(t["unique_buyers"]),
+            "buyer_id_disponivel": bool(t["n_with_buyer"]),
+            "max_single_order_qty": int(t["max_single_order_qty"]),
+            "days_with_orders": int(t["days_with_orders"]),
+        },
+        "by_item": {r["item_id"]: {
+            "qty": int(r["qty"]),
+            "receita_bruta": round(float(r["receita_bruta"]), 2),
+            "orders_count": int(r["orders_count"]),
+        } for r in by_item_rows},
+    }
+
+
+# ── Ads Intelligence — alertas / eventos / experimentos (Etapa 7) ─────────────
+
+def save_ads_alert(seller_id, scope, target_id, tipo, severidade, *,
+                   evidencia=None, acao_sugerida=None, dedup_key=None):
+    """
+    Grava um alerta. dedup_key (UNIQUE) evita repetir o mesmo alerta a cada
+    coleta — INSERT OR IGNORE mantém o primeiro. Retorna (id|None, criado_bool).
+    """
+    if dedup_key is None:
+        dedup_key = f"{tipo}|{scope}|{target_id}"
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO ads_alerts "
+        "(seller_id, scope, target_id, tipo, severidade, evidencia, acao_sugerida, "
+        " dedup_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (seller_id, scope, str(target_id), tipo, severidade,
+         json.dumps(evidencia, ensure_ascii=False) if evidencia is not None else None,
+         acao_sugerida, dedup_key, int(time.time())),
+    )
+    conn.commit()
+    criado = cur.rowcount > 0
+    row = conn.execute("SELECT id FROM ads_alerts WHERE dedup_key = ?", (dedup_key,)).fetchone()
+    conn.close()
+    return (row["id"] if row else None), criado
+
+
+def get_ads_alerts(seller_id, *, scope=None, target_id=None, only_open=True, limit=200):
+    conn = get_conn()
+    sql = "SELECT * FROM ads_alerts WHERE seller_id = ?"
+    args = [seller_id]
+    if scope:
+        sql += " AND scope = ?"; args.append(scope)
+    if target_id is not None:
+        sql += " AND target_id = ?"; args.append(str(target_id))
+    if only_open:
+        sql += " AND resolved_at IS NULL"
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    args.append(limit)
+    rows = conn.execute(sql, args).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if d.get("evidencia"):
+            try:
+                d["evidencia"] = json.loads(d["evidencia"])
+            except (TypeError, ValueError):
+                pass
+        out.append(d)
+    return out
+
+
+def resolve_ads_alert(alert_id):
+    conn = get_conn()
+    conn.execute("UPDATE ads_alerts SET resolved_at = ? WHERE id = ? AND resolved_at IS NULL",
+                 (int(time.time()), alert_id))
+    conn.commit()
+    conn.close()
+
+
+def record_ads_event(seller_id, scope, target_id, field, *, old_value=None,
+                     new_value=None, author=None, motivo=None, hipotese=None,
+                     source="manual", changed_at=None):
+    """Registro manual (ou de sistema) na linha do tempo de eventos do alvo."""
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO ads_events "
+        "(seller_id, scope, target_id, changed_at, field, old_value, new_value, "
+        " author, motivo, hipotese, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (seller_id, scope, str(target_id), changed_at or int(time.time()), field,
+         None if old_value is None else str(old_value),
+         None if new_value is None else str(new_value),
+         author, motivo, hipotese, source),
+    )
+    conn.commit()
+    eid = cur.lastrowid
+    conn.close()
+    return eid
+
+
+def get_ads_events(seller_id, scope, target_id, *, limit=100):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM ads_events WHERE seller_id = ? AND scope = ? AND target_id = ? "
+        "ORDER BY changed_at DESC LIMIT ?",
+        (seller_id, scope, str(target_id), limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def create_ads_experiment(seller_id, scope, target_id, hipotese, *, intervencao=None,
+                          janela_inicio=None, janela_fim=None):
+    conn = get_conn()
+    now = int(time.time())
+    cur = conn.execute(
+        "INSERT INTO ads_experiments "
+        "(seller_id, scope, target_id, hipotese, intervencao, janela_inicio, "
+        " janela_fim, status, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 'aberto', ?, ?)",
+        (seller_id, scope, str(target_id), hipotese, intervencao,
+         janela_inicio, janela_fim, now, now),
+    )
+    conn.commit()
+    xid = cur.lastrowid
+    conn.close()
+    return xid
+
+
+def get_ads_experiment(experiment_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM ads_experiments WHERE id = ?", (experiment_id,)).fetchone()
+    conn.close()
+    d = dict(row) if row else None
+    if d and d.get("resultado"):
+        try:
+            d["resultado"] = json.loads(d["resultado"])
+        except (TypeError, ValueError):
+            pass
+    return d
+
+
+def list_ads_experiments(seller_id, *, scope=None, target_id=None, status=None, limit=200):
+    conn = get_conn()
+    sql = "SELECT * FROM ads_experiments WHERE seller_id = ?"
+    args = [seller_id]
+    if scope:
+        sql += " AND scope = ?"; args.append(scope)
+    if target_id is not None:
+        sql += " AND target_id = ?"; args.append(str(target_id))
+    if status:
+        sql += " AND status = ?"; args.append(status)
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    args.append(limit)
+    rows = conn.execute(sql, args).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_ads_experiment(experiment_id, **fields):
+    allowed = {"intervencao", "janela_inicio", "janela_fim", "resultado",
+               "conclusao", "status"}
+    patch = {k: v for k, v in fields.items() if k in allowed}
+    if not patch:
+        return
+    if "resultado" in patch and not isinstance(patch["resultado"], str):
+        patch["resultado"] = json.dumps(patch["resultado"], ensure_ascii=False)
+    patch["updated_at"] = int(time.time())
+    sets = ", ".join(f"{k} = ?" for k in patch)
+    conn = get_conn()
+    conn.execute(f"UPDATE ads_experiments SET {sets} WHERE id = ?",
+                 (*patch.values(), experiment_id))
+    conn.commit()
+    conn.close()

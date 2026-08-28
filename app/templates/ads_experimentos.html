@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AEGIS Ads — Experimentos · {{ account.name }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d0d0d; color: #e0e0e0; }
+  a { color: #f5a623; text-decoration: none; } a:hover { text-decoration: underline; }
+  header { background: #111; border-bottom: 1px solid #222; padding: 16px 32px; display: flex;
+           align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .logo { font-size: 20px; font-weight: 700; letter-spacing: 3px; color: #fff; } .logo span { color: #f5a623; }
+  nav a { margin-left: 16px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+  main { padding: 24px 32px; max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 15px; text-transform: uppercase; letter-spacing: 2px; color: #888; margin-bottom: 16px; }
+  .card { background: #141414; border: 1px solid #242424; border-radius: 8px; padding: 16px 18px; margin-bottom: 18px; }
+  .card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #666; margin-bottom: 12px; }
+  .flash { padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
+  .flash.success { background: #1a3a1a; border: 1px solid #4caf50; color: #a5d6a7; }
+  .flash.error { background: #3a1a1a; border: 1px solid #f44336; color: #ef9a9a; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #202020; vertical-align: top; }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #777; }
+  tr:hover td { background: #1a1a1a; }
+  .grey { color: #888; } .green { color: #4caf50; } .orange { color: #f5a623; }
+  .pill { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
+  .p-aberto { background: #16283d; color: #90caf9; } .p-concluido { background: #143d14; color: #81c784; }
+  .p-cancelado { background: #2a2a2a; color: #888; }
+  form.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 14px; }
+  form.grid label { font-size: 11px; color: #999; display: block; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .5px; }
+  input, select, textarea { width: 100%; background: #1a1a1a; color: #e0e0e0; border: 1px solid #333;
+                            padding: 7px 9px; border-radius: 5px; font-size: 13px; font-family: inherit; }
+  textarea { resize: vertical; min-height: 46px; }
+  .full { grid-column: 1 / -1; }
+  button { background: #f5a623; color: #111; border: none; padding: 9px 20px; border-radius: 5px;
+           font-weight: 700; cursor: pointer; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">AEGIS <span>ADS</span></div>
+  <nav>
+    <a href="/ads/{{ seller_id }}">Cockpit</a>
+    <a href="/ads/{{ seller_id }}/campanhas">Campanhas</a>
+    <a href="/ads/{{ seller_id }}/experimentos">Experimentos</a>
+    <a href="/ads/{{ seller_id }}/config">Config</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Experimentos & Eventos — {{ account.name }}</h1>
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}
+  {% endwith %}
+
+  <div class="card">
+    <h3>Novo experimento — hipótese → intervenção → janela → resultado</h3>
+    <form class="grid" method="post">
+      <input type="hidden" name="acao" value="experimento">
+      <div class="full">
+        <label>Hipótese</label>
+        <textarea name="hipotese" placeholder="ex: baixar o ROAS-alvo de 14 p/ 12 aumenta volume mantendo a margem" required></textarea>
+      </div>
+      <div>
+        <label>Alvo</label>
+        <select name="alvo" required>
+          <option value="">—</option>
+          <optgroup label="Campanhas">
+            {% for c in d.campanhas_sel %}<option value="campaign:{{ c.id }}">{{ c.label }}</option>{% endfor %}
+          </optgroup>
+          <optgroup label="Ad groups">
+            {% for g in d.ad_groups_sel %}<option value="ad_group:{{ g.id }}">{{ g.label }}</option>{% endfor %}
+          </optgroup>
+        </select>
+      </div>
+      <div><label>Intervenção (o que você mudou)</label><input name="intervencao" placeholder="ex: roas_target 14 → 12"></div>
+      <div><label>Início da intervenção</label><input type="date" name="janela_inicio"></div>
+      <div><label>Fim (opcional — em aberto se vazio)</label><input type="date" name="janela_fim"></div>
+      <div class="full"><button type="submit">Criar experimento</button></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Registrar evento manual (entra na linha do tempo do alvo)</h3>
+    <form class="grid" method="post">
+      <input type="hidden" name="acao" value="evento">
+      <div>
+        <label>Alvo</label>
+        <select name="alvo" required>
+          <option value="">—</option>
+          <optgroup label="Campanhas">{% for c in d.campanhas_sel %}<option value="campaign:{{ c.id }}">{{ c.label }}</option>{% endfor %}</optgroup>
+          <optgroup label="Ad groups">{% for g in d.ad_groups_sel %}<option value="ad_group:{{ g.id }}">{{ g.label }}</option>{% endfor %}</optgroup>
+        </select>
+      </div>
+      <div><label>Campo alterado</label><input name="field" placeholder="ex: roas_target / budget / criativo" required></div>
+      <div><label>Valor antigo</label><input name="old_value"></div>
+      <div><label>Valor novo</label><input name="new_value"></div>
+      <div><label>Autor</label><input name="author" placeholder="quem fez"></div>
+      <div><label>Motivo</label><input name="motivo"></div>
+      <div class="full"><label>Hipótese</label><input name="hipotese_ev"></div>
+      <div class="full"><button type="submit">Registrar evento</button></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Experimentos ({{ d.experimentos | length }})</h3>
+    {% if not d.experimentos %}<div class="grey">Nenhum experimento ainda.</div>{% endif %}
+    <table>
+      {% if d.experimentos %}
+      <thead><tr><th>#</th><th>Hipótese</th><th>Alvo</th><th>Intervenção</th><th>Janela</th><th>Status</th><th>Conclusão</th></tr></thead>
+      {% endif %}
+      <tbody>
+      {% for x in d.experimentos %}
+      <tr onclick="location.href='/ads/{{ seller_id }}/experimento/{{ x.id }}'" style="cursor:pointer">
+        <td>{{ x.id }}</td>
+        <td style="max-width:340px">{{ x.hipotese }}</td>
+        <td class="grey">{{ x.scope }} {{ x.target_id }}</td>
+        <td class="grey">{{ x.intervencao or '—' }}</td>
+        <td class="grey">{{ x.janela_inicio or '?' }} … {{ x.janela_fim or 'aberto' }}</td>
+        <td><span class="pill p-{{ x.status }}">{{ x.status }}</span></td>
+        <td class="grey">{{ (x.conclusao or '—')[:60] }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</main>
+</body>
+</html>
