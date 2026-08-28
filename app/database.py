@@ -3452,6 +3452,22 @@ def get_ad_group_item_ids(seller_id, ad_group_id):
     return [r["item_id"] for r in rows]
 
 
+def get_ad_group_items_full(seller_id, ad_group_id):
+    """Itens do ad group com atributos + título do anúncio (join items) p/ a UI 8d."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT agi.item_id, agi.family_id, agi.user_product_id, agi.catalog_listing, "
+        "       agi.status AS ad_status, agi.listing_type_id, agi.logistic_type, "
+        "       agi.buy_box_winner, agi.current_level, i.title, i.price, i.status AS item_status "
+        "FROM ad_group_items agi "
+        "LEFT JOIN items i ON i.id = agi.item_id AND i.seller_id = agi.seller_id "
+        "WHERE agi.seller_id = ? AND agi.ad_group_id = ? ORDER BY agi.item_id",
+        (seller_id, ad_group_id),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def get_campaign_item_ids(seller_id, campaign_id, *, include_scaffold=False):
     """item_id distintos veiculados pela campanha (via seus ad groups não-scaffold)."""
     conn = get_conn()

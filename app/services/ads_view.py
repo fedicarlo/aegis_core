@@ -8,7 +8,9 @@ lógica de diagnóstico aqui e zero no template — os engines já decidiram tud
 from datetime import datetime, timedelta, timezone
 
 from app.database import (
+    get_ads_ad_group,
     get_ads_alerts,
+    get_ad_group_items_full,
     get_campaign_ad_groups,
     get_conn,
 )
@@ -293,5 +295,74 @@ def campaign_detail(seller_id, campaign_id, *, period=30, since_last_change=Fals
         "alertas": get_ads_alerts(seller_id, scope="campaign", target_id=campaign_id, only_open=True),
         "timeline": ads_experiments.timeline(seller_id, "campaign", campaign_id, limit=40),
         "ad_groups": ags,
+        "chart": chart,
+    }
+
+
+# ── 8d — Análise por SKU / Ad Group ──────────────────────────────────────
+
+def ad_group_detail(seller_id, ad_group_id, *, period=30, since_last_change=False):
+    d_from, d_to = _window(period)
+    margem_alvo = ads_strategy.margem_alvo_pct(seller_id)
+
+    ag = get_ads_ad_group(seller_id, ad_group_id)
+    if not ag:
+        return None
+
+    m = ads_metrics.ad_group_metrics(seller_id, ad_group_id, d_from, d_to,
+                                     since_last_change=since_last_change, include_series=True)
+    fin_full = ads_finance.ad_group_finance(seller_id, ad_group_id, d_from, d_to,
+                                            since_last_change=since_last_change,
+                                            margem_alvo_pct=margem_alvo)
+    dg = ads_diagnostic.diagnose(seller_id, "ad_group", ad_group_id, d_from, d_to,
+                                 since_last_change=since_last_change)
+    rec = ads_diagnostic.recommend(seller_id, "ad_group", ad_group_id, d_from, d_to,
+                                   since_last_change=since_last_change)
+
+    fin = fin_full.get("finance") or {}
+    by_sku = fin.get("by_sku") or {}
+    itens = []
+    for it in get_ad_group_items_full(seller_id, ad_group_id):
+        bd = by_sku.get(it["item_id"])
+        itens.append({
+            **it,
+            "lucro_antes_ads": bd["lucro_antes_ads"] if bd else None,
+            "margem_antes_ads_pct": bd["margem_antes_ads_pct"] if bd else None,
+            "receita_bruta": bd["receita_bruta"] if bd else None,
+            "qty": bd["qty"] if bd else None,
+            "has_cost": bd is not None,
+        })
+    itens.sort(key=lambda x: -(x["receita_bruta"] or 0))
+
+    series = m.get("daily_series") or []
+    chart = {
+        "labels": [r["date"] for r in series],
+        "cost": [r.get("cost") for r in series],
+        "roas": [r.get("roas") for r in series],
+        "acos": [r.get("acos") for r in series],
+        "prints": [r.get("prints") for r in series],
+        "ads_units": [r.get("units_quantity") for r in series],
+    }
+
+    return {
+        "ad_group": {
+            "id": ad_group_id, "type": ag.get("ad_group_type"),
+            "external_id": ag.get("ad_group_external_id"), "title": ag.get("title"),
+            "status_ml": ag.get("status"), "campaign_id": ag.get("campaign_id"),
+            "is_scaffold": bool(ag.get("is_scaffold")), "tags": ag.get("tags"),
+            "date_created_ml": ag.get("date_created_ml"),
+            "domain_id": ag.get("domain_id"),
+        },
+        "sku_level": ag.get("ad_group_type") == "ITEM",
+        "window": m["window"], "period": period, "since_last_change": since_last_change,
+        "serving": m["serving"], "status": m["status"],
+        "not_serving_reason": m.get("not_serving_reason"),
+        "funnel": m.get("funnel"),
+        "finance": fin,
+        "diagnostico": dg, "recomendacao": rec,
+        "itens": itens,
+        "n_itens": len(itens),
+        "alertas": get_ads_alerts(seller_id, scope="ad_group", target_id=ad_group_id, only_open=True),
+        "timeline": ads_experiments.timeline(seller_id, "ad_group", ad_group_id, limit=40),
         "chart": chart,
     }
