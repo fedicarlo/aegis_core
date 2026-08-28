@@ -161,40 +161,46 @@ def _caso_C(m, dr):
 
 
 def _caso_D(m, fin):
+    """
+    Duas lentes (Finance Engine as rotula separadas — não misturar):
+      BLENDED: margem depois de Ads sobre a receita REAL total (inclui orgânica).
+               atinge_meta_blended = "a operação fecha na meta?"
+      AD:      o Ads se paga sozinho na meta? roas_realizado vs roas_minimo_operacional.
+    Caso D dispara se: economicamente viável (roas >= equilíbrio) E
+      (não fecha no blended) OU (fecha no blended mas o Ads não se paga sozinho —
+       o orgânico está subsidiando) OU (meta inatingível nem sem Ads).
+    """
     f = m["funnel"]
-    roas = _f(f.get("roas"))
+    roas = _f(fin.get("roas_realizado")) or _f(f.get("roas"))
     be = _f(fin.get("roas_equilibrio"))
     rmo = _f(fin.get("roas_minimo_operacional"))
     margem_alvo = fin.get("margem_alvo_pct")
     margem_depois = fin.get("margem_depois_ads_pct")
+    atinge_blended = fin.get("atinge_meta_blended")
+    ads_ok = fin.get("ads_auto_suficiente_na_meta")
     inatingivel = fin.get("margem_alvo_inatingivel")
+    tacos = fin.get("tacos_pct")
+    tacos_max = fin.get("tacos_maximo_operacional_pct")
 
     if roas is None:
         return None
-    comercialmente_ok = be is None or roas >= be
-    if not comercialmente_ok:
-        return None  # está perdendo dinheiro na venda atribuída — não é "só" econômico, é pior
+    if be is not None and roas < be:
+        return None  # perdendo dinheiro na venda atribuída — não é "só" econômico, é pior (vai pro Alert)
 
-    abaixo_do_minimo = rmo is not None and roas < rmo
-    abaixo_da_meta = (margem_alvo is not None and margem_depois is not None
-                      and margem_depois < margem_alvo)
-    if not (abaixo_do_minimo or abaixo_da_meta or inatingivel):
+    dispara = bool(inatingivel) or (atinge_blended is False) or (ads_ok is False)
+    if not dispara:
         return None
 
     fatos = [
-        f"ROAS {roas} — equilíbrio {be}, mínimo operacional p/ margem {margem_alvo}% = {rmo}.",
-        f"Margem depois de Ads {margem_depois}% vs. meta {margem_alvo}%"
-        + (" (no limite)." if margem_depois is not None and margem_alvo is not None
-           and abs(margem_depois - margem_alvo) < 0.5 else "."),
-        f"Margem antes de Ads {fin.get('margem_antes_ads_pct')}% "
-        f"(ACOS de equilíbrio {fin.get('acos_equilibrio_pct')}%).",
+        f"Margem antes de Ads {fin.get('margem_antes_ads_pct')}%; margem DEPOIS de Ads "
+        f"(sobre a receita total, com orgânica) {margem_depois}% vs. meta {margem_alvo}%.",
+        f"TACOS {tacos}% (máximo p/ a meta: {tacos_max}%). "
+        f"ROAS realizado {roas} — equilíbrio {be}, mínimo operacional p/ o Ads se pagar "
+        f"sozinho na meta = {rmo}.",
     ]
     if fin.get("custo_incompleto"):
         fatos.append(f"ATENÇÃO: {len(fin.get('itens_sem_custo') or [])} SKU(s) com venda mas sem custo "
                      f"cadastrado — a margem calculada ignora esses itens.")
-    if f.get("attribution_exceeds_real"):
-        fatos.append("A receita atribuída pelo ML supera a receita real dos itens do alvo — parte do "
-                     "resultado é venda assistida de OUTROS produtos; a margem real pode ser pior.")
 
     hip = []
     if inatingivel:
@@ -202,12 +208,19 @@ def _caso_D(m, fin):
                              "custo/preço do SKU, não a campanha.", "confianca": CONF_MEDIA})
         acao = ("Rever a meta de margem OU a estrutura de custo/preço do produto antes de mexer na "
                 "campanha — Ads não resolve margem que já não fecha sem Ads.")
-    else:
-        hip.append({"texto": "O ROAS-alvo da campanha pode estar calibrado acima do que a margem real "
-                             "do produto sustenta — a campanha 'funciona' comercialmente mas não entrega "
-                             "a margem da operação.", "confianca": CONF_MEDIA})
-        acao = ("Revisar o ROAS-alvo à luz da margem real; ou assumir a margem menor de propósito, como "
-                "custo de aquisição, se a exposição do produto for estratégica.")
+    elif atinge_blended is False:
+        hip.append({"texto": "O ROAS-alvo pode estar calibrado acima do que a margem real do produto "
+                             "sustenta — a operação não fecha na meta nem somando a venda orgânica.",
+                    "confianca": CONF_MEDIA})
+        acao = ("Revisar o ROAS-alvo à luz da margem real; ou assumir a margem menor de propósito, "
+                "como custo de aquisição, se a exposição for estratégica.")
+    else:  # fecha no blended, mas o Ads não se paga sozinho
+        hip.append({"texto": "A operação fecha na meta NO TOTAL, mas as vendas atribuídas ao Ads não se "
+                             "pagam nessa margem — o orgânico está subsidiando o Ads. Se o objetivo é "
+                             "o Ads auto-suficiente, o ROAS-alvo está agressivo demais.",
+                    "confianca": CONF_MEDIA})
+        acao = ("Decidir a intenção do Ads: se é pra se pagar sozinho, subir o ROAS-alvo / rever "
+                "SKU; se é pra ganhar exposição e o total fecha, pode estar OK — é decisão estratégica.")
     return {"caso": "D", "nome": CASE_NAMES["D"], "avaliavel": True,
             "fatos": fatos, "hipoteses": hip, "acao_sugerida": acao}
 

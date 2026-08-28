@@ -115,36 +115,72 @@ def _finance_from_items(seller_id, item_ids, date_from, date_to, ads_cost,
     ads_cost = round(_f(ads_cost), 2)
     lucro_depois = round(lucro_antes - ads_cost, 2)
     receita_real = orders["total"]["receita_bruta"]
+    ads_rev = round(_f(ads_revenue), 2)
 
     margem_antes_pct = _pct(lucro_antes, receita_costed)
-    # ACOS de equilíbrio = % da receita que o Ads consome até zerar o lucro.
-    # Sobre a receita com custo conhecido (a única base defensável).
+
+    # Duas lentes, rotuladas de propósito (não misturar):
+    #
+    #  BLENDED (sobre a receita REAL total, incluindo orgânica) — "a operação fecha?"
+    #    tacos_pct          = ads_cost / receita_real
+    #    tacos_maximo_pct   = margem_antes_pct - margem_alvo_pct (folga sobre o total)
+    #    margem_depois_pct  = lucro_depois / receita_costed
+    #    atinge_meta_blended = margem_depois_pct >= margem_alvo_pct
+    #
+    #  AD (sobre a receita ATRIBUÍDA ao Ads) — "o Ads se paga sozinho na meta?"
+    #    acos_equilibrio_pct  = margem_antes_pct  (ACOS que zera o lucro da venda Ads)
+    #    roas_equilibrio      = 100 / acos_equilibrio_pct
+    #    acos_maximo_na_meta  = margem_antes_pct - margem_alvo_pct
+    #    roas_minimo_operacional = 100 / acos_maximo_na_meta
+    #    ads_auto_suficiente_na_meta = roas_realizado >= roas_minimo_operacional
+    tacos_pct = _pct(ads_cost, receita_real)
+    margem_depois_pct = _pct(lucro_depois, receita_costed)
     acos_equilibrio_pct = margem_antes_pct
     roas_equilibrio = round(100 / margem_antes_pct, 2) if margem_antes_pct and margem_antes_pct > 0 else None
 
+    tol = 0.05  # tolerância p/ "no limite"
+    atinge_meta_blended = None
+    tacos_maximo_pct = None
     roas_minimo_operacional = None
     margem_alvo_inatingivel = None
     if margem_alvo_pct is not None and margem_antes_pct is not None:
-        folga_pct = margem_antes_pct - margem_alvo_pct
+        atinge_meta_blended = (margem_depois_pct is not None
+                               and margem_depois_pct >= margem_alvo_pct - tol)
+        folga_pct = round(margem_antes_pct - margem_alvo_pct, 2)
+        tacos_maximo_pct = folga_pct
         if folga_pct <= 0:
             margem_alvo_inatingivel = True
         else:
-            roas_minimo_operacional = round(100 / folga_pct, 2)
             margem_alvo_inatingivel = False
+            roas_minimo_operacional = round(100 / folga_pct, 2)
+
+    roas_realizado = round(ads_rev / ads_cost, 2) if ads_cost else None
+    acos_realizado = round(ads_cost / ads_rev * 100, 2) if ads_rev else None
+    ads_auto_suficiente_na_meta = None
+    if roas_minimo_operacional is not None and roas_realizado is not None:
+        ads_auto_suficiente_na_meta = roas_realizado >= roas_minimo_operacional
 
     return {
         "receita_real": round(receita_real, 2),
         "receita_com_custo_conhecido": round(receita_costed, 2),
         "ads_cost": ads_cost,
-        "ads_revenue_atribuida": round(_f(ads_revenue), 2),
+        "ads_revenue_atribuida": ads_rev,
         "lucro_antes_ads": lucro_antes,
         "lucro_depois_ads": lucro_depois,
         "margem_antes_ads_pct": margem_antes_pct,
-        "margem_depois_ads_pct": _pct(lucro_depois, receita_costed),
+        "margem_depois_ads_pct": margem_depois_pct,
+        "margem_alvo_pct": margem_alvo_pct,
+        # lente BLENDED
+        "tacos_pct": tacos_pct,
+        "tacos_maximo_operacional_pct": tacos_maximo_pct,
+        "atinge_meta_blended": atinge_meta_blended,
+        # lente AD
+        "acos_realizado_pct": acos_realizado,
+        "roas_realizado": roas_realizado,
         "acos_equilibrio_pct": acos_equilibrio_pct,
         "roas_equilibrio": roas_equilibrio,
-        "margem_alvo_pct": margem_alvo_pct,
         "roas_minimo_operacional": roas_minimo_operacional,
+        "ads_auto_suficiente_na_meta": ads_auto_suficiente_na_meta,
         "margem_alvo_inatingivel": margem_alvo_inatingivel,
         "custo_incompleto": bool(itens_sem_custo),
         "itens_sem_custo": itens_sem_custo,
