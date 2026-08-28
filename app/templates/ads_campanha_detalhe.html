@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AEGIS Ads — {{ d.campaign.name }}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d0d0d; color: #e0e0e0; }
+  a { color: #f5a623; text-decoration: none; } a:hover { text-decoration: underline; }
+  header { background: #111; border-bottom: 1px solid #222; padding: 16px 32px;
+           display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .logo { font-size: 20px; font-weight: 700; letter-spacing: 3px; color: #fff; } .logo span { color: #f5a623; }
+  nav a { margin-left: 16px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+  main { padding: 24px 32px; max-width: 1280px; margin: 0 auto; }
+  h1 { font-size: 18px; color: #fff; margin-bottom: 4px; }
+  .meta { font-size: 12px; color: #888; margin-bottom: 18px; }
+  .card { background: #141414; border: 1px solid #242424; border-radius: 8px; padding: 16px 18px; margin-bottom: 18px; }
+  .card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #666; margin-bottom: 12px; }
+  .grey { color: #888; } .green { color: #4caf50; } .orange { color: #f5a623; } .red { color: #ef5350; } .blue { color: #64b5f6; }
+  .filters { display: flex; gap: 6px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+  .filters a { padding: 5px 11px; border: 1px solid #333; border-radius: 5px; font-size: 12px; color: #aaa; }
+  .filters a.active { background: #f5a623; color: #111; border-color: #f5a623; font-weight: 700; }
+  .badge { display:inline-block; padding: 3px 11px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+  .b-COM_GARGALO,.b-ATENCAO { background: #3d3413; color: #ffd54f; border: 1px solid #f5a623; }
+  .b-SAUDAVEL { background: #143d14; color: #81c784; border: 1px solid #2e7d32; }
+  .b-NAO_VEICULANDO { background: #2a2a2a; color: #888; border: 1px solid #444; }
+  .b-APRENDIZADO { background: #16283d; color: #90caf9; border: 1px solid #1976d2; }
+  .rec { background: #17130a; border: 1px solid #4a3a12; border-radius: 8px; padding: 16px 18px; margin-bottom: 18px; }
+  .rec .acao { font-size: 15px; color: #fff; font-weight: 600; margin: 6px 0 10px; }
+  .conf { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #2a2a2a; }
+  .conf.alta { color: #81c784; } .conf.media { color: #ffd54f; } .conf.baixa { color: #ef9a9a; }
+  .fato { font-size: 13px; color: #cfcfcf; padding: 4px 0 4px 18px; position: relative; }
+  .fato::before { content: "FATO"; position: absolute; left: 0; top: 4px; font-size: 8px; color: #4caf50; font-weight: 700; letter-spacing: .5px; }
+  .hip { font-size: 13px; color: #cfcfcf; padding: 4px 0 4px 26px; position: relative; font-style: italic; }
+  .hip::before { content: "HIP."; position: absolute; left: 0; top: 4px; font-size: 8px; color: #f5a623; font-weight: 700; }
+  .caso-h { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #999; margin: 14px 0 4px; }
+  .caso-h .tag { background:#2a2210; color:#f5a623; padding:1px 7px; border-radius:8px; font-weight:700; }
+  .acao-sug { font-size: 12px; color: #bbb; margin-top: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid #202020; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #777; }
+  tr:hover td { background: #1a1a1a; }
+  .funnel { display: flex; gap: 4px; align-items: flex-end; height: 90px; margin: 8px 0 4px; }
+  .funnel .bar { flex: 1; background: #2a2a2a; border-radius: 3px 3px 0 0; position: relative; min-height: 4px; }
+  .funnel .bar.a { background: #37474f; } .funnel .bar.b { background: #455a64; }
+  .funnel .bar.c { background: #f5a623; } .funnel .bar.d { background: #4caf50; }
+  .funnel .lbl { font-size: 10px; color: #999; text-align: center; margin-top: 6px; }
+  .isbar { display: flex; height: 26px; border-radius: 5px; overflow: hidden; margin: 6px 0; }
+  .isbar .seg { display:flex; align-items:center; justify-content:center; font-size:10px; color:#111; font-weight:700; }
+  .isbar .won { background: #4caf50; } .isbar .lb { background: #ef5350; } .isbar .lr { background: #f5a623; }
+  .lens { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .lens > div { background: #101010; border: 1px solid #222; border-radius: 6px; padding: 12px 14px; }
+  .lens h4 { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #777; margin-bottom: 8px; }
+  .lens .line { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
+  .lens .line b { color: #fff; }
+  .alert { border-left: 3px solid; padding: 9px 13px; margin-bottom: 7px; background: #161616; border-radius: 4px; font-size: 13px; }
+  .alert.critico { border-color: #c62828; } .alert.atencao { border-color: #f5a623; } .alert.info { border-color: #1976d2; }
+  .tl { font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid #1e1e1e; }
+  .tl .w { color: #666; } .tl .sys { color: #64b5f6; } .tl .man { color: #f5a623; }
+  .pill { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 700; }
+  .p-VEICULANDO { background: #143d14; color: #81c784; } .p-NAO { background: #2a2a2a; color: #888; }
+  canvas { max-height: 260px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">AEGIS <span>ADS</span></div>
+  <nav>
+    <a href="/ads/{{ seller_id }}">Cockpit</a>
+    <a href="/ads/{{ seller_id }}/campanhas?period={{ period }}">← Campanhas</a>
+    <a href="/ads/{{ seller_id }}/experimentos">Experimentos</a>
+    <a href="/ads/{{ seller_id }}/config">Config</a>
+  </nav>
+</header>
+
+<main>
+  <h1>{{ d.campaign.name }}
+    <span class="badge b-{{ d.status }}">{{ d.status | replace('_',' ') }}</span>
+  </h1>
+  <div class="meta">
+    {{ d.campaign.status_ml }} · estratégia {{ d.campaign.strategy }} · orçamento/dia {{ d.campaign.budget | brl }}
+    · ACOS-alvo {{ d.campaign.acos_target }}% · ROAS-alvo {{ d.campaign.roas_target }}
+    · período efetivo {{ d.window.effective_from }}…{{ d.window.effective_to }}{% if d.window.clamped_by_last_change %} (cortado na última alteração de {{ d.window.last_change_date }}){% endif %}
+  </div>
+
+  <div class="filters">
+    {% for p in periods %}
+    <a href="?period={{ p }}{{ '&desde_ultima_alteracao=1' if desde_ultima_alteracao }}" class="{{ 'active' if p == period }}">{{ p }}d</a>
+    {% endfor %}
+    <a href="?period={{ period }}{{ '' if desde_ultima_alteracao else '&desde_ultima_alteracao=1' }}" class="{{ 'active' if desde_ultima_alteracao }}">desde última alteração</a>
+  </div>
+
+  {% if not d.serving %}
+  <div class="card"><h3>Sem veiculação no período</h3>
+    <div class="grey">motivo: {{ d.not_serving_reason }}. Sem diagnóstico — um alvo que não veicula nunca é "performance zero".</div>
+  </div>
+  {% else %}
+
+  {# ── Recomendação ── #}
+  <div class="rec">
+    <h3 style="color:#999">Próxima ação {% if d.recomendacao.caso %}· caso {{ d.recomendacao.caso }}{% endif %}
+      <span class="conf {{ d.recomendacao.confianca }}">confiança {{ d.recomendacao.confianca }}</span></h3>
+    <div class="acao">{{ d.recomendacao.proxima_acao }}</div>
+    {% for f in d.recomendacao.porque.fatos %}<div class="fato">{{ f }}</div>{% endfor %}
+    {% for h in d.recomendacao.porque.hipoteses %}<div class="hip">{{ h.texto }} <span class="grey">({{ h.confianca }})</span></div>{% endfor %}
+    {% if d.recomendacao.casos_relacionados %}<div class="acao-sug">casos relacionados: {{ d.recomendacao.casos_relacionados | join(', ') }}</div>{% endif %}
+  </div>
+
+  {# ── Diagnóstico completo ── #}
+  <div class="card">
+    <h3>Diagnóstico — FATO vs. HIPÓTESE</h3>
+    {% if d.diagnostico.fatos_gerais %}
+      {% for f in d.diagnostico.fatos_gerais %}<div class="fato">{{ f }}</div>{% endfor %}
+    {% endif %}
+    {% for c in d.diagnostico.casos %}
+      <div class="caso-h">Caso <span class="tag">{{ c.caso }}</span> — {{ c.nome }}
+        {% if c.caso == d.diagnostico.caso_primario %}<span class="grey">(primário)</span>{% endif %}</div>
+      {% if not c.avaliavel %}
+        <div class="grey" style="font-size:12px">não avaliável: {{ c.motivo_nao_avaliavel }}</div>
+      {% else %}
+        {% for f in c.fatos %}<div class="fato">{{ f }}</div>{% endfor %}
+        {% for h in c.hipoteses %}<div class="hip">{{ h.texto }} <span class="grey">({{ h.confianca }})</span></div>{% endfor %}
+        <div class="acao-sug">→ {{ c.acao_sugerida }}</div>
+      {% endif %}
+    {% endfor %}
+    <div style="font-size:11px;color:#666;margin-top:10px">
+      estágio: {% if d.diagnostico.estagio.avaliavel %}avaliável{% else %}{{ d.diagnostico.estagio.motivo }}{% endif %}
+    </div>
+  </div>
+
+  {# ── Funil ── #}
+  {% set fn = d.funnel %}
+  <div class="card">
+    <h3>Funil ({{ period }} dias)</h3>
+    <div class="funnel" id="funnelBars"></div>
+    <div style="display:flex;gap:4px">
+      <div class="funnel-lbl-wrap" style="flex:1"><div class="lbl">impressões<br><b>{{ '{:,}'.format(fn.prints).replace(',', '.') }}</b></div></div>
+      <div style="flex:1"><div class="lbl">cliques (CTR {{ fn.ctr }}%)<br><b>{{ fn.clicks }}</b></div></div>
+      <div style="flex:1"><div class="lbl">un. atribuídas (CVR {{ fn.cvr }}%)<br><b>{{ fn.ads_units }}</b></div></div>
+      <div style="flex:1"><div class="lbl">receita atribuída<br><b>{{ fn.ads_revenue | brl }}</b></div></div>
+    </div>
+    <div class="grey" style="font-size:12px;margin-top:8px">
+      receita real total (orders) {{ fn.real_revenue | brl }} · {{ fn.real_orders }} pedidos ·
+      orgânica {{ fn.organic_revenue | brl }} ({{ fn.organic_share_pct }}%) · TACOS {{ fn.tacos }}%
+      {% if fn.attribution_exceeds_real %}<span class="orange"> · atenção: receita atribuída &gt; receita real dos itens (venda assistida de outros produtos)</span>{% endif %}
+    </div>
+  </div>
+
+  {# ── Impression share ── #}
+  {% if d.impression_share %}
+  {% set isd = d.impression_share %}
+  <div class="card">
+    <h3>Impression share — ganho vs. perdido</h3>
+    <div class="isbar">
+      <div class="seg won" style="width:{{ isd.ganho_pct }}%">{{ isd.ganho_pct }}%</div>
+      <div class="seg lr" style="width:{{ isd.perdido_classificacao_pct }}%">{{ isd.perdido_classificacao_pct }}%</div>
+      <div class="seg lb" style="width:{{ isd.perdido_orcamento_pct }}%">{{ isd.perdido_orcamento_pct }}%</div>
+    </div>
+    <div style="font-size:12px;color:#999">
+      <span class="green">■</span> ganho {{ isd.ganho_pct }}% ·
+      <span class="orange">■</span> perdido por classificação {{ isd.perdido_classificacao_pct }}% ·
+      <span class="red">■</span> perdido por orçamento {{ isd.perdido_orcamento_pct }}%
+      · ACOS realizado {{ fn.acos }}% vs. benchmark ML {{ isd.acos_benchmark }}%
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Economia 2 lentes ── #}
+  {% set e = d.finance %}
+  {% if e %}
+  <div class="card">
+    <h3>Economia — as duas lentes</h3>
+    <div class="lens">
+      <div>
+        <h4>Blended — a operação fecha na meta?</h4>
+        <div class="line"><span>Lucro antes de Ads</span><b>{{ e.lucro_antes_ads | brl }}</b></div>
+        <div class="line"><span>Custo de Ads</span><b>− {{ e.ads_cost | brl }}</b></div>
+        <div class="line"><span>Lucro depois de Ads</span><b>{{ e.lucro_depois_ads | brl }}</b></div>
+        <div class="line"><span>Margem depois de Ads</span><b>{{ e.margem_depois_ads_pct }}% <span class="grey">(meta {{ e.margem_alvo_pct }}%)</span></b></div>
+        <div class="line"><span>TACOS / máximo p/ meta</span><b>{{ e.tacos_pct }}% / {{ e.tacos_maximo_operacional_pct }}%</b></div>
+        <div class="line"><span>Fecha no total?</span><b class="{{ 'green' if e.atinge_meta_blended else 'red' }}">{{ 'SIM' if e.atinge_meta_blended else 'NÃO' }}</b></div>
+      </div>
+      <div>
+        <h4>Ad — o Ads se paga sozinho na meta?</h4>
+        <div class="line"><span>ROAS realizado</span><b>{{ e.roas_realizado }}</b></div>
+        <div class="line"><span>ROAS de equilíbrio</span><b>{{ e.roas_equilibrio }}</b></div>
+        <div class="line"><span>ROAS mínimo operacional</span><b>{{ e.roas_minimo_operacional }}</b></div>
+        <div class="line"><span>Ads auto-suficiente na meta?</span><b class="{{ 'green' if e.ads_auto_suficiente_na_meta else 'red' }}">{{ 'SIM' if e.ads_auto_suficiente_na_meta else 'NÃO' }}</b></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Série diária ── #}
+  <div class="card">
+    <h3>Série diária</h3>
+    <canvas id="chartMain"></canvas>
+    <canvas id="chartIS" style="margin-top:14px"></canvas>
+  </div>
+
+  {% endif %} {# serving #}
+
+  {# ── Alertas ── #}
+  <div class="card">
+    <h3>Alertas abertos da campanha ({{ d.alertas | length }})</h3>
+    {% if not d.alertas %}<div class="grey">Nenhum.</div>{% endif %}
+    {% for a in d.alertas %}
+    <div class="alert {{ a.severidade }}">
+      <b>{{ a.tipo | replace('_',' ') }}</b> <span class="grey">· {{ a.severidade }}</span><br>
+      <span class="grey" style="font-size:12px">{{ a.evidencia }}</span>
+      {% if a.acao_sugerida %}<br><span style="font-size:12px;font-style:italic">→ {{ a.acao_sugerida }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ── Timeline ── #}
+  <div class="card">
+    <h3>Linha do tempo de eventos</h3>
+    {% if not d.timeline %}<div class="grey">Nenhum evento registrado.</div>{% endif %}
+    {% for e in d.timeline %}
+    <div class="tl">
+      <span class="w">{{ e.changed_at_iso[:16] | replace('T',' ') }}</span>
+      <span class="{{ 'sys' if e.source == 'system' else 'man' }}">[{{ e.source }}]</span>
+      {{ e.field }}: <b>{{ e.old_value }}</b> → <b>{{ e.new_value }}</b>
+      {% if e.author %}<span class="grey">· {{ e.author }}{% if e.motivo %} — {{ e.motivo }}{% endif %}{% if e.hipotese %} (hipótese: {{ e.hipotese }}){% endif %}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ── Ad groups ── #}
+  <div class="card">
+    <h3>Ad groups da campanha ({{ d.ad_groups | length }})</h3>
+    <table>
+      <thead><tr>
+        <th>Ad group</th><th>Tipo</th><th>Estado</th><th>Impressões</th><th>Cliques</th>
+        <th>Investimento</th><th>Un. Ads</th><th>Rec. atrib.</th><th>ACOS</th><th>ROAS</th>
+      </tr></thead>
+      <tbody>
+      {% for g in d.ad_groups %}
+      <tr onclick="location.href='/ads/{{ seller_id }}/ad-group/{{ g.ad_group_id }}?period={{ period }}'" style="cursor:pointer">
+        <td>{{ g.title or g.external_id }} <span class="grey">{{ g.tags }}</span></td>
+        <td>{{ g.type }}{% if g.sku_level %} <span class="green" title="grão = SKU">•</span>{% endif %}</td>
+        <td><span class="pill {{ 'p-VEICULANDO' if g.serving else 'p-NAO' }}">{{ 'veicula' if g.serving else (g.not_serving_reason or 'não') }}</span></td>
+        {% if g.serving %}
+        <td>{{ '{:,}'.format(g.prints).replace(',', '.') }}</td>
+        <td>{{ g.clicks }}</td>
+        <td>{{ g.cost | brl }}</td>
+        <td>{{ g.ads_units }}</td>
+        <td>{{ g.ads_revenue | brl }}</td>
+        <td>{{ g.acos ~ '%' if g.acos is not none else '—' }}</td>
+        <td>{{ g.roas if g.roas is not none else '—' }}</td>
+        {% else %}
+        <td colspan="7" class="grey" style="text-align:left">—</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="grey" style="font-size:11px;margin-top:6px"><span class="green">•</span> = ad group tipo ITEM (métrica = 1 SKU). CATALOG/FAMILY agregam vários SKUs.</div>
+  </div>
+</main>
+
+{% if d.serving %}
+<script>
+const L = {{ d.chart.labels | tojson }};
+const gridC = "#222", tickC = "#888";
+new Chart(document.getElementById('chartMain'), {
+  data: { labels: L, datasets: [
+    { type:'bar', label:'Investimento (R$)', data:{{ d.chart.cost | tojson }}, backgroundColor:'#455a64', yAxisID:'y' },
+    { type:'line', label:'ROAS', data:{{ d.chart.roas | tojson }}, borderColor:'#4caf50', yAxisID:'y1', tension:.3 },
+    { type:'line', label:'ACOS %', data:{{ d.chart.acos | tojson }}, borderColor:'#f5a623', yAxisID:'y1', tension:.3 },
+    { type:'line', label:'ACOS benchmark %', data:{{ d.chart.acos_benchmark | tojson }}, borderColor:'#777', borderDash:[4,4], yAxisID:'y1', tension:.3 },
+  ]},
+  options: { responsive:true, interaction:{mode:'index'}, plugins:{legend:{labels:{color:tickC}}},
+    scales:{ x:{grid:{color:gridC},ticks:{color:tickC,maxTicksLimit:10}},
+      y:{position:'left',grid:{color:gridC},ticks:{color:tickC}},
+      y1:{position:'right',grid:{drawOnChartArea:false},ticks:{color:tickC}} } }
+});
+new Chart(document.getElementById('chartIS'), {
+  type:'line',
+  data:{ labels:L, datasets:[
+    { label:'Impression share %', data:{{ d.chart.impression_share | tojson }}, borderColor:'#4caf50', backgroundColor:'rgba(76,175,80,.12)', fill:true, tension:.3 },
+    { label:'Impressões', data:{{ d.chart.prints | tojson }}, borderColor:'#64b5f6', yAxisID:'y1', tension:.3 },
+  ]},
+  options:{ responsive:true, plugins:{legend:{labels:{color:tickC}}},
+    scales:{ x:{grid:{color:gridC},ticks:{color:tickC,maxTicksLimit:10}},
+      y:{grid:{color:gridC},ticks:{color:tickC}},
+      y1:{position:'right',grid:{drawOnChartArea:false},ticks:{color:tickC}} } }
+});
+// funil (barras proporcionais em escala log-ish)
+(function(){
+  const vals = [{{ fn.prints }}, {{ fn.clicks }}, {{ fn.ads_units }}, {{ fn.ads_revenue }}];
+  const cls = ['a','b','c','d'];
+  const mx = Math.max(...vals.map(v => Math.log10((v||0)+1)));
+  const wrap = document.getElementById('funnelBars');
+  vals.forEach((v,i) => {
+    const b = document.createElement('div');
+    b.className = 'bar ' + cls[i];
+    b.style.height = Math.max(4, (Math.log10((v||0)+1)/mx)*100) + '%';
+    wrap.appendChild(b);
+  });
+})();
+</script>
+{% endif %}
+</body>
+</html>

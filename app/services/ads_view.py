@@ -9,11 +9,12 @@ from datetime import datetime, timedelta, timezone
 
 from app.database import (
     get_ads_alerts,
-    get_ads_events,
+    get_campaign_ad_groups,
     get_conn,
 )
 from app.services import (
     ads_diagnostic,
+    ads_experiments,
     ads_finance,
     ads_metrics,
     ads_strategy,
@@ -208,3 +209,89 @@ def _lost(ish, key):
     if not ish or ish.get(key) is None:
         return None
     return round(ish[key] * 100, 1)
+
+
+# ── 8c — Detalhe de campanha ──────────────────────────────────────────────
+
+def campaign_detail(seller_id, campaign_id, *, period=30, since_last_change=False):
+    d_from, d_to = _window(period)
+    margem_alvo = ads_strategy.margem_alvo_pct(seller_id)
+
+    m = ads_metrics.campaign_metrics(seller_id, campaign_id, d_from, d_to,
+                                     since_last_change=since_last_change, include_series=True)
+    if not m.get("found"):
+        return None
+    fin_full = ads_finance.campaign_finance(seller_id, campaign_id, d_from, d_to,
+                                            since_last_change=since_last_change,
+                                            margem_alvo_pct=margem_alvo)
+    dg = ads_diagnostic.diagnose(seller_id, "campaign", campaign_id, d_from, d_to,
+                                 since_last_change=since_last_change)
+    rec = ads_diagnostic.recommend(seller_id, "campaign", campaign_id, d_from, d_to,
+                                   since_last_change=since_last_change)
+
+    ish = m.get("impression_share") or {}
+    imp_breakdown = None
+    if ish.get("impression_share") is not None:
+        won = round(ish["impression_share"] * 100, 1)
+        lb = round((ish.get("lost_impression_share_by_budget") or 0) * 100, 1)
+        lr = round((ish.get("lost_impression_share_by_ad_rank") or 0) * 100, 1)
+        imp_breakdown = {
+            "ganho_pct": won, "perdido_orcamento_pct": lb, "perdido_classificacao_pct": lr,
+            "top_pct": round((ish.get("top_impression_share") or 0) * 100, 1),
+            "acos_benchmark": ish.get("acos_benchmark"),
+        }
+
+    series = m.get("daily_series") or []
+    chart = {
+        "labels": [r["date"] for r in series],
+        "cost": [r.get("cost") for r in series],
+        "roas": [r.get("roas") for r in series],
+        "acos": [r.get("acos") for r in series],
+        "acos_benchmark": [r.get("acos_benchmark") for r in series],
+        "prints": [r.get("prints") for r in series],
+        "clicks": [r.get("clicks") for r in series],
+        "ads_units": [r.get("units_quantity") for r in series],
+        "impression_share": [(r.get("impression_share") or 0) * 100
+                             if r.get("impression_share") is not None else None for r in series],
+    }
+
+    # ad groups da campanha (resumo — detalhe fica na 8d)
+    ags = []
+    for g in get_campaign_ad_groups(seller_id, campaign_id, include_scaffold=True):
+        gid = g["ad_group_id_ml"]
+        gm = ads_metrics.ad_group_metrics(seller_id, gid, d_from, d_to,
+                                          since_last_change=since_last_change, include_series=False)
+        gf = gm.get("funnel") or {}
+        ags.append({
+            "ad_group_id": gid, "type": g.get("ad_group_type"),
+            "external_id": g.get("ad_group_external_id"), "title": g.get("title"),
+            "status_ml": g.get("status"), "is_scaffold": bool(g.get("is_scaffold")),
+            "sku_level": g.get("ad_group_type") == "ITEM",
+            "serving": gm.get("serving"), "not_serving_reason": gm.get("not_serving_reason"),
+            "prints": gf.get("prints"), "clicks": gf.get("clicks"), "cost": gf.get("cost"),
+            "ads_units": gf.get("ads_units"), "ads_revenue": gf.get("ads_revenue"),
+            "acos": gf.get("acos"), "roas": gf.get("roas"),
+            "tags": g.get("tags"),
+        })
+    ags.sort(key=lambda x: (-(x["cost"] or 0), x["title"] or ""))
+
+    return {
+        "campaign": {
+            "id": campaign_id, "name": m.get("name"), "status_ml": m.get("status_ml"),
+            "strategy": m.get("strategy"), "budget": m.get("budget"),
+            "acos_target": m.get("acos_target"), "roas_target": m.get("roas_target"),
+            "currency_id": m.get("currency_id"),
+        },
+        "window": m["window"], "period": period, "since_last_change": since_last_change,
+        "serving": m["serving"], "status": m["status"],
+        "not_serving_reason": m.get("not_serving_reason"),
+        "funnel": m.get("funnel"),
+        "impression_share": imp_breakdown,
+        "finance": fin_full.get("finance"),
+        "diagnostico": dg,
+        "recomendacao": rec,
+        "alertas": get_ads_alerts(seller_id, scope="campaign", target_id=campaign_id, only_open=True),
+        "timeline": ads_experiments.timeline(seller_id, "campaign", campaign_id, limit=40),
+        "ad_groups": ags,
+        "chart": chart,
+    }

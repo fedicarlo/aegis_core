@@ -78,6 +78,17 @@ def main():
     if "--8b" in sys.argv:
         paths.append(f"/ads/{sid}/campanhas?period=30")
         paths.append(f"/ads/{sid}/campanhas?period=30&desde_ultima_alteracao=1")
+    if "--8c" in sys.argv:
+        paths.append(f"/ads/{sid}/campanha/354852122?period=30")
+        paths.append(f"/ads/{sid}/campanha/358737092?period=30")
+        paths.append(f"/ads/{sid}/campanha/354852122?period=14&desde_ultima_alteracao=1")
+    if "--8d" in sys.argv:
+        paths.append(f"/ads/{sid}/ad-group/1538648021?period=30")
+        paths.append(f"/ads/{sid}/ad-group/2762365993?period=30")
+    if "--8e" in sys.argv:
+        paths.append(f"/ads/{sid}/experimentos")
+    if "--8f" in sys.argv:
+        paths.append(f"/ads/{sid}/config")
     os.makedirs(RENDER_DIR, exist_ok=True)
     for path in paths:
         r = cli.get(path)

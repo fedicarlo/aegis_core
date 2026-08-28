@@ -61,3 +61,22 @@ def campanhas(seller_id):
     return render_template("ads_campanhas.html", account=account, authorized=authorized,
                            seller_id=seller_id, period=period, periods=_PERIODS,
                            desde_ultima_alteracao=slc, rows=rows)
+
+
+# ── 8c — Detalhe de campanha ──────────────────────────────────────────────
+
+@ads_bp.route("/ads/<seller_id>/campanha/<int:campaign_id>")
+def campanha(seller_id, campaign_id):
+    account, authorized = _resolve(seller_id)
+    if not account:
+        flash("Conta não encontrada ou não autorizada.", "error")
+        return redirect(url_for("web.index"))
+    period = _period()
+    slc = _since_last_change()
+    d = ads_view.campaign_detail(seller_id, campaign_id, period=period, since_last_change=slc)
+    if not d:
+        flash("Campanha não encontrada.", "error")
+        return redirect(url_for("ads.campanhas", seller_id=seller_id))
+    return render_template("ads_campanha_detalhe.html", account=account, authorized=authorized,
+                           seller_id=seller_id, period=period, periods=_PERIODS,
+                           desde_ultima_alteracao=slc, d=d)
