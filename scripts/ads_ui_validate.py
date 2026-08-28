@@ -112,6 +112,29 @@ def main():
             "recomputar": "1"}, follow_redirects=False)
         print(f"  POST concluir experimento -> {rp2.status_code}")
 
+    if "--8f" in sys.argv:
+        import json as _json
+        from app.services import ads_strategy as _st
+        before = _st.margem_alvo_pct(sid)
+        rp = cli.post(f"/ads/{sid}/config", data={
+            "grupo": "profit_targets", "alvo_profile": "seller",
+            "valor_json": _json.dumps({"margem_alvo_pct": 12.5})}, follow_redirects=False)
+        after = _st.margem_alvo_pct(sid)
+        print(f"  POST config profit_targets.margem_alvo_pct {before} -> {after}  ({rp.status_code})")
+        assert after == 12.5
+        # engine pega o valor novo?
+        from app.services import ads_finance as _fin
+        f = _fin.campaign_finance(sid, 354852122, "2026-07-28", "2026-08-26")["finance"]
+        print(f"  campaign_finance agora usa margem_alvo_pct={f['margem_alvo_pct']} "
+              f"(roas_minimo_operacional={f['roas_minimo_operacional']})")
+        assert f["margem_alvo_pct"] == 12.5
+        _st.save_strategy_profile(sid, {"profit_targets": {"margem_alvo_pct": before or 10.0}})
+        rp2 = cli.post(f"/ads/{sid}/config", data={
+            "grupo": "risk_limits", "alvo_profile": "seller",
+            "valor_json": "{ not json }"}, follow_redirects=False)
+        print(f"  POST config com JSON inválido -> {rp2.status_code} (deve redirect com flash de erro)")
+        paths.append(f"/ads/{sid}/config")
+
     for path in paths:
         r = cli.get(path)
         html = r.get_data(as_text=True)

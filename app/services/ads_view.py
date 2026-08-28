@@ -404,3 +404,38 @@ def experiment_detail(seller_id, experiment_id):
     exp["created_iso"] = datetime.fromtimestamp(exp["created_at"], tz=timezone.utc).isoformat()[:16]
     avaliacao = ads_experiments.evaluate(experiment_id)
     return {"exp": exp, "avaliacao": avaliacao}
+
+
+# ── 8f — Config do Strategy Profile ─────────────────────────────────────────
+
+def config_page(seller_id):
+    import json as _json
+    prof = ads_strategy.get_strategy_profile(seller_id)
+    grupos = []
+    for g in ("minimum_sample_rules", "profit_targets", "diagnostic_rules",
+              "risk_limits", "development_rules", "consolidation_rules"):
+        efetivo = {k: v for k, v in prof[g].items() if k != "_source"}
+        grupos.append({
+            "nome": g,
+            "source": prof[g].get("_source"),
+            "efetivo_json": _json.dumps(efetivo, ensure_ascii=False, indent=2),
+            "defaults_json": _json.dumps(ads_strategy.DEFAULTS[g], ensure_ascii=False, indent=2),
+        })
+    # override do próprio seller (o que está salvo especificamente pra ele)
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM ads_strategy_profile WHERE seller_id = ? AND name = 'default'",
+        (seller_id,)).fetchone()
+    conn.close()
+    seller_override = {}
+    if row:
+        for g in ("minimum_sample_rules", "profit_targets", "diagnostic_rules",
+                  "risk_limits", "development_rules", "consolidation_rules"):
+            try:
+                v = _json.loads(row[g] or "{}")
+            except (TypeError, ValueError):
+                v = {}
+            if v:
+                seller_override[g] = v
+    return {"grupos": grupos, "tem_override_seller": bool(seller_override),
+            "seller_override": seller_override}

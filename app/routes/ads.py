@@ -178,3 +178,36 @@ def experimento(seller_id, experiment_id):
         return redirect(url_for("ads.experimentos", seller_id=seller_id))
     return render_template("ads_experimento_detalhe.html", account=account, authorized=authorized,
                            seller_id=seller_id, d=d)
+
+
+# ── 8f — Config do Strategy Profile ─────────────────────────────────────────
+
+@ads_bp.route("/ads/<seller_id>/config", methods=["GET", "POST"])
+def config(seller_id):
+    import json as _json
+    from app.services import ads_strategy
+
+    account, authorized = _resolve(seller_id)
+    if not account:
+        flash("Conta não encontrada ou não autorizada.", "error")
+        return redirect(url_for("web.index"))
+
+    if request.method == "POST":
+        grupo = request.form.get("grupo")
+        raw = request.form.get("valor_json", "").strip()
+        alvo = request.form.get("alvo_profile", "seller")  # 'seller' | 'global'
+        target_seller = "" if alvo == "global" else seller_id
+        try:
+            patch = _json.loads(raw) if raw else {}
+            if not isinstance(patch, dict):
+                raise ValueError("o JSON precisa ser um objeto {}")
+            ads_strategy.save_strategy_profile(target_seller, {grupo: patch})
+            flash(f"Grupo '{grupo}' salvo no profile "
+                  f"{'GLOBAL' if alvo == 'global' else 'do seller'}.", "success")
+        except (ValueError, TypeError) as e:
+            flash(f"JSON inválido em '{grupo}': {e}", "error")
+        return redirect(url_for("ads.config", seller_id=seller_id))
+
+    d = ads_view.config_page(seller_id)
+    return render_template("ads_config.html", account=account, authorized=authorized,
+                           seller_id=seller_id, d=d)
