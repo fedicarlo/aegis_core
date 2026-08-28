@@ -366,3 +366,41 @@ def ad_group_detail(seller_id, ad_group_id, *, period=30, since_last_change=Fals
         "timeline": ads_experiments.timeline(seller_id, "ad_group", ad_group_id, limit=40),
         "chart": chart,
     }
+
+
+# ── 8e — Experimentos ───────────────────────────────────────────────────────
+
+def _targets_for_select(seller_id):
+    """Campanhas + ad groups (não-scaffold) p/ os selects de alvo dos formulários."""
+    conn = get_conn()
+    camps = [{"id": r["campaign_id_ml"], "label": f"campanha · {r['name']}"}
+             for r in conn.execute(
+                 "SELECT campaign_id_ml, name FROM campaigns WHERE seller_id=? ORDER BY name",
+                 (seller_id,))]
+    ags = [{"id": r["ad_group_id_ml"],
+            "label": f"ad group · {(r['title'] or r['ad_group_external_id'])[:50]} ({r['ad_group_type']})"}
+           for r in conn.execute(
+               "SELECT ad_group_id_ml, title, ad_group_external_id, ad_group_type "
+               "FROM ad_groups WHERE seller_id=? AND is_scaffold=0 ORDER BY title",
+               (seller_id,))]
+    conn.close()
+    return camps, ags
+
+
+def experiments_page(seller_id):
+    from app.database import list_ads_experiments
+    exps = list_ads_experiments(seller_id, limit=200)
+    for x in exps:
+        x["created_iso"] = datetime.fromtimestamp(x["created_at"], tz=timezone.utc).isoformat()[:16]
+    camps, ags = _targets_for_select(seller_id)
+    return {"experimentos": exps, "campanhas_sel": camps, "ad_groups_sel": ags}
+
+
+def experiment_detail(seller_id, experiment_id):
+    from app.database import get_ads_experiment
+    exp = get_ads_experiment(experiment_id)
+    if not exp or str(exp["seller_id"]) != str(seller_id):
+        return None
+    exp["created_iso"] = datetime.fromtimestamp(exp["created_at"], tz=timezone.utc).isoformat()[:16]
+    avaliacao = ads_experiments.evaluate(experiment_id)
+    return {"exp": exp, "avaliacao": avaliacao}

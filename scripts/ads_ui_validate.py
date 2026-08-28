@@ -90,6 +90,28 @@ def main():
     if "--8f" in sys.argv:
         paths.append(f"/ads/{sid}/config")
     os.makedirs(RENDER_DIR, exist_ok=True)
+
+    if "--8e" in sys.argv:
+        from datetime import date as _d, timedelta as _td
+        rp = cli.post(f"/ads/{sid}/experimentos", data={
+            "acao": "experimento", "alvo": "campaign:354852122",
+            "hipotese": "baixar ROAS-alvo 14->12 aumenta volume mantendo margem",
+            "intervencao": "roas_target 14 -> 12",
+            "janela_inicio": (_d.today() - _td(days=12)).isoformat(),
+        }, follow_redirects=False)
+        print(f"  POST criar experimento -> {rp.status_code} (redirect {rp.headers.get('Location')})")
+        xid = rp.headers.get("Location", "/0").rstrip("/").split("/")[-1]
+        cli.post(f"/ads/{sid}/experimentos", data={
+            "acao": "evento", "alvo": "campaign:354852122", "field": "roas_target",
+            "old_value": "14", "new_value": "12", "author": "lipe",
+            "motivo": "margem depois de Ads no limite"}, follow_redirects=False)
+        paths.append(f"/ads/{sid}/experimentos")
+        paths.append(f"/ads/{sid}/experimento/{xid}")
+        rp2 = cli.post(f"/ads/{sid}/experimento/{xid}", data={
+            "status": "concluido", "conclusao": "volume subiu, margem manteve",
+            "recomputar": "1"}, follow_redirects=False)
+        print(f"  POST concluir experimento -> {rp2.status_code}")
+
     for path in paths:
         r = cli.get(path)
         html = r.get_data(as_text=True)

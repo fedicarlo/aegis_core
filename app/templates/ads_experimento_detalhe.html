@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AEGIS Ads — Experimento #{{ d.exp.id }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d0d0d; color: #e0e0e0; }
+  a { color: #f5a623; text-decoration: none; } a:hover { text-decoration: underline; }
+  header { background: #111; border-bottom: 1px solid #222; padding: 16px 32px; display: flex;
+           align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .logo { font-size: 20px; font-weight: 700; letter-spacing: 3px; color: #fff; } .logo span { color: #f5a623; }
+  nav a { margin-left: 16px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+  main { padding: 24px 32px; max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 16px; color: #fff; margin-bottom: 6px; }
+  .meta { font-size: 12px; color: #888; margin-bottom: 16px; }
+  .card { background: #141414; border: 1px solid #242424; border-radius: 8px; padding: 16px 18px; margin-bottom: 18px; }
+  .card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #666; margin-bottom: 12px; }
+  .flash { padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
+  .flash.success { background: #1a3a1a; border: 1px solid #4caf50; color: #a5d6a7; }
+  .grey { color: #888; } .green { color: #4caf50; } .red { color: #ef5350; } .orange { color: #f5a623; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 8px 12px; border-bottom: 1px solid #202020; }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #777; }
+  .up { color: #4caf50; } .down { color: #ef5350; }
+  input, select, textarea { width: 100%; background: #1a1a1a; color: #e0e0e0; border: 1px solid #333;
+                            padding: 7px 9px; border-radius: 5px; font-size: 13px; font-family: inherit; }
+  textarea { resize: vertical; min-height: 60px; }
+  label { font-size: 11px; color: #999; text-transform: uppercase; letter-spacing: .5px; display: block; margin: 8px 0 3px; }
+  button { background: #f5a623; color: #111; border: none; padding: 9px 20px; border-radius: 5px; font-weight: 700; cursor: pointer; }
+  .warn { background: #221a0a; border: 1px solid #4a3a12; border-radius: 6px; padding: 10px 12px; font-size: 12px; color: #d0c090; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">AEGIS <span>ADS</span></div>
+  <nav>
+    <a href="/ads/{{ seller_id }}">Cockpit</a>
+    <a href="/ads/{{ seller_id }}/experimentos">← Experimentos</a>
+    <a href="/ads/{{ seller_id }}/{{ 'campanha/' ~ d.exp.target_id if d.exp.scope == 'campaign' else 'ad-group/' ~ d.exp.target_id }}">Alvo</a>
+  </nav>
+</header>
+
+<main>
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, m in msgs %}<div class="flash {{ cat }}">{{ m }}</div>{% endfor %}
+  {% endwith %}
+
+  <h1>Experimento #{{ d.exp.id }} · <span class="grey">{{ d.exp.status }}</span></h1>
+  <div class="meta">
+    {{ d.exp.scope }} {{ d.exp.target_id }} · criado {{ d.exp.created_iso | replace('T',' ') }}
+    · intervenção: {{ d.exp.intervencao or '—' }}
+    · início {{ d.exp.janela_inicio }} · fim {{ d.exp.janela_fim or 'aberto' }}
+  </div>
+
+  <div class="card">
+    <h3>Hipótese</h3>
+    <div>{{ d.exp.hipotese }}</div>
+  </div>
+
+  <div class="card">
+    <h3>Before / After</h3>
+    {% set av = d.avaliacao %}
+    {% if av.erro %}
+      <div class="warn">{{ av.erro }}</div>
+    {% else %}
+      <div class="meta">
+        Before <b>{{ av.before_window.from }} … {{ av.before_window.to }}</b> ·
+        After <b>{{ av.after_window.from }} … {{ av.after_window.to }}</b> (janelas simétricas)
+        {% if av.ressalva_amostra %}<span class="orange"> · ressalva de amostra: {{ av.ressalva_amostra | join(', ') }}</span>{% endif %}
+      </div>
+      <table>
+        <thead><tr><th>Métrica</th><th>Antes</th><th>Depois</th><th>Δ</th><th>Δ%</th></tr></thead>
+        <tbody>
+        {% for k, c in av.comparacao.items() %}
+        <tr>
+          <td>{{ k | replace('_',' ') }}</td>
+          <td>{{ c.antes if c.antes is not none else '—' }}</td>
+          <td>{{ c.depois if c.depois is not none else '—' }}</td>
+          <td class="{{ 'up' if c.delta and c.delta > 0 else ('down' if c.delta and c.delta < 0 else '') }}">{{ c.delta if c.delta is not none else '—' }}</td>
+          <td class="{{ 'up' if c.delta_pct and c.delta_pct > 0 else ('down' if c.delta_pct and c.delta_pct < 0 else '') }}">{{ c.delta_pct ~ '%' if c.delta_pct is not none else '—' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div class="meta" style="margin-top:8px">Δ verde/vermelho é só a direção — a leitura (bom/ruim) depende da métrica e da hipótese.</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Atualizar / concluir</h3>
+    <form method="post">
+      <label>Intervenção</label><input name="intervencao" value="{{ d.exp.intervencao or '' }}">
+      <label>Fim da janela (fecha o After)</label><input type="date" name="janela_fim" value="{{ d.exp.janela_fim or '' }}">
+      <label>Status</label>
+      <select name="status">
+        {% for s in ('aberto', 'concluido', 'cancelado') %}
+        <option value="{{ s }}" {{ 'selected' if s == d.exp.status }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+      <label>Conclusão</label><textarea name="conclusao">{{ d.exp.conclusao or '' }}</textarea>
+      <label style="display:inline;text-transform:none"><input type="checkbox" name="recomputar" value="1" style="width:auto"> recomputar e salvar o resultado (snapshot Before/After)</label>
+      <div style="margin-top:10px"><button type="submit">Salvar</button></div>
+    </form>
+  </div>
+
+  {% if d.exp.resultado %}
+  <div class="card">
+    <h3>Resultado persistido (snapshot)</h3>
+    <pre style="font-size:11px;color:#999;white-space:pre-wrap;overflow-x:auto">{{ d.exp.resultado | tojson(indent=2) }}</pre>
+  </div>
+  {% endif %}
+</main>
+</body>
+</html>
