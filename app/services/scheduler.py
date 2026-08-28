@@ -92,6 +92,15 @@ def _run_ads_sync():
     except Exception as e:
         log.error(f"sync de Ads falhou: {e}")
 
+    # Alertas rodam depois da coleta (dado já fresco).
+    try:
+        from app.services.ads_alerts import run_alerts_all
+        alert_res = run_alerts_all()
+        total = sum(r.get("alertas_detectados", 0) for r in alert_res)
+        log.info(f"alertas de Ads: {total} detectado(s) em {len(alert_res)} conta(s)")
+    except Exception as e:
+        log.error(f"alertas de Ads falharam: {e}")
+
 
 def start_scheduler():
     """Chamado uma vez por worker em create_app(). Só efetivamente sobe o

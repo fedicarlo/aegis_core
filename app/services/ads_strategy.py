@@ -44,14 +44,19 @@ DEFAULTS = {
         "margem_alvo_pct": 10.0,             # margem depois de Ads que a operação quer manter
     },
     "risk_limits": {
-        "cpc_spike_factor": 2.0,             # CPC do dia > fator × mediana recente => alerta
-        "spend_pace_factor": 2.0,            # investimento do dia > fator × média recente => alerta
-        "clicks_sem_venda": 15,              # N cliques sem venda no período => alerta
+        "alert_recent_days": 7,              # janela "recente" p/ comparar com o baseline
+        "alert_baseline_days": 21,           # janela "anterior" (imediatamente antes da recente)
+        "cpc_spike_factor": 2.0,             # CPC recente > fator × CPC do baseline => alerta
+        "spend_pace_factor": 2.0,            # investimento/dia recente > fator × baseline => alerta
+        "clicks_sem_venda": 15,              # N cliques na janela recente sem venda atribuída => alerta
         "max_acos_pct": None,                # teto de ACOS (None = desligado)
-        "budget_cap_share_pct": 90.0,        # % de dias batendo teto de orçamento => alerta
-        "lost_by_budget_alert_pct": 20.0,    # perda de impressão por orçamento acima disso => alerta
-        "ctr_drop_factor": 0.5,              # CTR recente < fator × CTR anterior => alerta
+        "budget_cap_share_pct": 90.0,        # % de dias da janela batendo teto de orçamento => alerta
+        "lost_by_budget_alert_pct": 20.0,    # perda média de impressão por orçamento acima disso => alerta
+        "lost_by_budget_delta_pp": 10.0,     # aumento (p.p.) da perda por orçamento vs. baseline => alerta
+        "ctr_drop_factor": 0.5,              # CTR recente < fator × CTR do baseline => alerta
         "cvr_drop_factor": 0.5,              # idem conversão
+        "parou_de_vender_min_prev_units": 5,  # unidades atribuídas no baseline p/ considerar "vendia"
+        "outlier_roas_dominance_pct": 50.0,  # 1 pedido concentrando > X% das unidades reais distorce o ROAS
     },
     "development_rules": {
         "min_dias_veiculando": None,         # None = transição de estágio não é sugerida automaticamente

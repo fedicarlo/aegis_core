@@ -71,7 +71,7 @@ def main():
     hr("4) coleta Ads + backfill buyer_id (p/ ter dado real)")
     collect_ads_account(acc, token=tok, window_days=35)
     st = backfill_account(sid, tok, days=220)
-    print(f"   buyer_id: {st['linhas_atualizadas']} linhas, ainda_null={st['linhas_ainda_null']}")
+    print(f"   buyer_id: {st['orders_salvos']} salvos, ainda_null={st['linhas_ainda_null']}")
 
     dt = date.today().isoformat()
     d30 = (date.today() - timedelta(days=30)).isoformat()

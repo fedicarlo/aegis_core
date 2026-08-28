@@ -3646,3 +3646,159 @@ def get_orders_agg_for_items(seller_id, item_ids, date_from, date_to):
             "orders_count": int(r["orders_count"]),
         } for r in by_item_rows},
     }
+
+
+# ── Ads Intelligence — alertas / eventos / experimentos (Etapa 7) ─────────────
+
+def save_ads_alert(seller_id, scope, target_id, tipo, severidade, *,
+                   evidencia=None, acao_sugerida=None, dedup_key=None):
+    """
+    Grava um alerta. dedup_key (UNIQUE) evita repetir o mesmo alerta a cada
+    coleta — INSERT OR IGNORE mantém o primeiro. Retorna (id|None, criado_bool).
+    """
+    if dedup_key is None:
+        dedup_key = f"{tipo}|{scope}|{target_id}"
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO ads_alerts "
+        "(seller_id, scope, target_id, tipo, severidade, evidencia, acao_sugerida, "
+        " dedup_key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (seller_id, scope, str(target_id), tipo, severidade,
+         json.dumps(evidencia, ensure_ascii=False) if evidencia is not None else None,
+         acao_sugerida, dedup_key, int(time.time())),
+    )
+    conn.commit()
+    criado = cur.rowcount > 0
+    row = conn.execute("SELECT id FROM ads_alerts WHERE dedup_key = ?", (dedup_key,)).fetchone()
+    conn.close()
+    return (row["id"] if row else None), criado
+
+
+def get_ads_alerts(seller_id, *, scope=None, target_id=None, only_open=True, limit=200):
+    conn = get_conn()
+    sql = "SELECT * FROM ads_alerts WHERE seller_id = ?"
+    args = [seller_id]
+    if scope:
+        sql += " AND scope = ?"; args.append(scope)
+    if target_id is not None:
+        sql += " AND target_id = ?"; args.append(str(target_id))
+    if only_open:
+        sql += " AND resolved_at IS NULL"
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    args.append(limit)
+    rows = conn.execute(sql, args).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if d.get("evidencia"):
+            try:
+                d["evidencia"] = json.loads(d["evidencia"])
+            except (TypeError, ValueError):
+                pass
+        out.append(d)
+    return out
+
+
+def resolve_ads_alert(alert_id):
+    conn = get_conn()
+    conn.execute("UPDATE ads_alerts SET resolved_at = ? WHERE id = ? AND resolved_at IS NULL",
+                 (int(time.time()), alert_id))
+    conn.commit()
+    conn.close()
+
+
+def record_ads_event(seller_id, scope, target_id, field, *, old_value=None,
+                     new_value=None, author=None, motivo=None, hipotese=None,
+                     source="manual", changed_at=None):
+    """Registro manual (ou de sistema) na linha do tempo de eventos do alvo."""
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO ads_events "
+        "(seller_id, scope, target_id, changed_at, field, old_value, new_value, "
+        " author, motivo, hipotese, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (seller_id, scope, str(target_id), changed_at or int(time.time()), field,
+         None if old_value is None else str(old_value),
+         None if new_value is None else str(new_value),
+         author, motivo, hipotese, source),
+    )
+    conn.commit()
+    eid = cur.lastrowid
+    conn.close()
+    return eid
+
+
+def get_ads_events(seller_id, scope, target_id, *, limit=100):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM ads_events WHERE seller_id = ? AND scope = ? AND target_id = ? "
+        "ORDER BY changed_at DESC LIMIT ?",
+        (seller_id, scope, str(target_id), limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def create_ads_experiment(seller_id, scope, target_id, hipotese, *, intervencao=None,
+                          janela_inicio=None, janela_fim=None):
+    conn = get_conn()
+    now = int(time.time())
+    cur = conn.execute(
+        "INSERT INTO ads_experiments "
+        "(seller_id, scope, target_id, hipotese, intervencao, janela_inicio, "
+        " janela_fim, status, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 'aberto', ?, ?)",
+        (seller_id, scope, str(target_id), hipotese, intervencao,
+         janela_inicio, janela_fim, now, now),
+    )
+    conn.commit()
+    xid = cur.lastrowid
+    conn.close()
+    return xid
+
+
+def get_ads_experiment(experiment_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM ads_experiments WHERE id = ?", (experiment_id,)).fetchone()
+    conn.close()
+    d = dict(row) if row else None
+    if d and d.get("resultado"):
+        try:
+            d["resultado"] = json.loads(d["resultado"])
+        except (TypeError, ValueError):
+            pass
+    return d
+
+
+def list_ads_experiments(seller_id, *, scope=None, target_id=None, status=None, limit=200):
+    conn = get_conn()
+    sql = "SELECT * FROM ads_experiments WHERE seller_id = ?"
+    args = [seller_id]
+    if scope:
+        sql += " AND scope = ?"; args.append(scope)
+    if target_id is not None:
+        sql += " AND target_id = ?"; args.append(str(target_id))
+    if status:
+        sql += " AND status = ?"; args.append(status)
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    args.append(limit)
+    rows = conn.execute(sql, args).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_ads_experiment(experiment_id, **fields):
+    allowed = {"intervencao", "janela_inicio", "janela_fim", "resultado",
+               "conclusao", "status"}
+    patch = {k: v for k, v in fields.items() if k in allowed}
+    if not patch:
+        return
+    if "resultado" in patch and not isinstance(patch["resultado"], str):
+        patch["resultado"] = json.dumps(patch["resultado"], ensure_ascii=False)
+    patch["updated_at"] = int(time.time())
+    sets = ", ".join(f"{k} = ?" for k in patch)
+    conn = get_conn()
+    conn.execute(f"UPDATE ads_experiments SET {sets} WHERE id = ?",
+                 (*patch.values(), experiment_id))
+    conn.commit()
+    conn.close()
