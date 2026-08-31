@@ -15,6 +15,8 @@ from app.routes.analise_queda import analise_queda_bp
 from app.routes.stock import stock_bp
 from app.routes.concorrencia import concorrencia_bp
 from app.routes.ads import ads_bp
+from app.routes.seller import seller_bp
+from app.auth_policy import enforce_seller_policy
 
 
 def _num_br(value) -> str:
@@ -54,8 +56,18 @@ def create_app():
     def require_login():
         if request.endpoint is None or request.endpoint in PUBLIC_ENDPOINTS:
             return
-        if not session.get("admin"):
+        # compat: sessões antigas têm só session["admin"]; novas têm session["role"]
+        role = session.get("role") or ("admin" if session.get("admin") else None)
+        if not role:
             return redirect(url_for("auth.login", next=request.path))
+        if role == "admin":
+            return                       # acesso irrestrito — igual a hoje
+        return enforce_seller_policy()    # seller: allowlist + trava de seller_id
+
+    @app.context_processor
+    def inject_role():
+        role = session.get("role") or ("admin" if session.get("admin") else None)
+        return {"role": role, "is_seller": role == "seller"}
 
     app.jinja_env.filters["num_br"] = _num_br
     app.jinja_env.filters["brl"]    = _brl
@@ -74,6 +86,7 @@ def create_app():
     app.register_blueprint(stock_bp)
     app.register_blueprint(concorrencia_bp)
     app.register_blueprint(ads_bp)
+    app.register_blueprint(seller_bp)
 
     with app.app_context():
         from app.database import (
@@ -82,7 +95,7 @@ def create_app():
             init_meli_finance_tables, init_mp_tables,
             init_mp_other_movements_table, init_stock_own_tables,
             init_nfe_tables, init_diagnostico_tables, init_concorrencia_tables,
-            init_ads_tables,
+            init_ads_tables, init_seller_auth_tables,
         )
         init_db()
         init_data_tables()
@@ -97,6 +110,7 @@ def create_app():
         init_diagnostico_tables()
         init_concorrencia_tables()
         init_ads_tables()
+        init_seller_auth_tables()
 
         from app.services.ads_strategy import seed_default_profile
         seed_default_profile()

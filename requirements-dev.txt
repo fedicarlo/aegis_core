@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Infraestrutura de teste (Etapa A — módulo custos/promoções).
+# Instalar com:  venv/bin/python -m pip install -r requirements-dev.txt
+pytest>=8.0
