@@ -192,11 +192,15 @@
 <body>
 
 <header class="no-print">
-  <a href="{{ url_for('web.index') }}" class="logo">AE<span>G</span>IS</a>
+  <a href="{{ url_for('seller.painel') if is_seller else url_for('web.index') }}" class="logo">AE<span>G</span>IS</a>
   <span class="header-title">Diagnóstico · {{ account.name }}</span>
   <div class="header-actions">
-    <a href="{{ url_for('web.dashboard', account=account.name) }}" class="btn btn-ghost">← Dashboard</a>
-    <a href="{{ url_for('costs.custos', seller_id=seller_id) }}" class="btn btn-ghost">Gerenciar Custos</a>
+    {% if is_seller %}
+      <a href="{{ url_for('seller.painel') }}" class="btn btn-ghost">← Painel</a>
+    {% else %}
+      <a href="{{ url_for('web.dashboard', account=account.name) }}" class="btn btn-ghost">← Dashboard</a>
+    {% endif %}
+    <a href="{{ url_for('costs.custos', seller_id=seller_id) }}" class="btn btn-ghost">{{ 'Custos' if is_seller else 'Gerenciar Custos' }}</a>
     <a href="{{ url_for('costs.apuracao', seller_id=seller_id) }}" class="btn btn-ghost">Apuração</a>
     <button class="btn btn-green" onclick="window.print()">Exportar PDF</button>
   </div>
@@ -221,10 +225,12 @@
 
   <!-- ── RECALCULAR ──────────────────────────────────────────────────────── -->
   <div class="recalc-row no-print">
+    {% if not is_seller %}
     <button class="btn btn-primary" id="btnRecalc" onclick="recalcular()">Recalcular diagnóstico</button>
+    {% endif %}
     <span class="recalc-ts">
       Último cálculo:
-      <strong id="lastCalc">{{ computed_at_str or 'nunca — clique em "Recalcular diagnóstico"' }}</strong>
+      <strong id="lastCalc">{{ computed_at_str or 'nunca calculado' }}</strong>
     </span>
   </div>
 
@@ -337,7 +343,9 @@
           </td>
           <td class="td-motivo">{{ r.override_reason if r.override_status else r.computed_reason }}</td>
           <td class="no-print">
-            {% if r.override_status %}
+            {% if is_seller %}
+              <button class="btn-override" onclick="toggleOverride('{{ r.item_id }}','{{ r.variation_id }}')">✎ Sugerir status</button>
+            {% elif r.override_status %}
               <button class="btn-override remover" onclick="clearOverride('{{ r.item_id }}','{{ r.variation_id }}')">Remover override</button>
             {% else %}
               <button class="btn-override" onclick="toggleOverride('{{ r.item_id }}','{{ r.variation_id }}')">✎ Override</button>
@@ -346,6 +354,29 @@
         </tr>
         <tr class="override-row no-print" id="ovrow-{{ r.item_id }}" style="display:none">
           <td colspan="6">
+            {% if is_seller %}
+            <form class="override-form" method="POST" action="{{ url_for('seller.suggest_status') }}">
+              <input type="hidden" name="item_id" value="{{ r.item_id }}">
+              <input type="hidden" name="variation_id" value="{{ r.variation_id }}">
+              <div class="override-field">
+                <label>Status sugerido</label>
+                <select name="suggested_status" required>
+                  <option value="manter">Manter</option>
+                  <option value="saida_planejada">Saída planejada</option>
+                  <option value="descontinuar">Descontinuar</option>
+                  <option value="fora_regua">Fora da régua</option>
+                </select>
+              </div>
+              <div class="override-field">
+                <label>Justificativa (obrigatória)</label>
+                <textarea name="comment" required placeholder="Por que esse produto deveria mudar de status? Fica pendente de aprovação do admin."></textarea>
+              </div>
+              <div class="override-actions">
+                <button class="btn btn-primary" type="submit">Enviar sugestão</button>
+                <button class="btn btn-ghost" type="button" onclick="toggleOverride('{{ r.item_id }}','{{ r.variation_id }}')">Cancelar</button>
+              </div>
+            </form>
+            {% else %}
             <div class="override-form">
               <div class="override-field">
                 <label>Novo status</label>
@@ -366,6 +397,7 @@
                 <button class="btn btn-ghost" onclick="toggleOverride('{{ r.item_id }}','{{ r.variation_id }}')">Cancelar</button>
               </div>
             </div>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

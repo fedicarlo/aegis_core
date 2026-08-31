@@ -146,7 +146,13 @@
       margin-left: 6px; vertical-align: middle;
     }
 
-    .price-col { color: #555; font-size: 11px; text-align: right; }
+    .price-col { color: #555; font-size: 11px; text-align: right; white-space: nowrap; }
+    .price-col .price-eff { color: var(--green); font-size: 12px; font-weight: 600; }
+    .price-col .price-reg { color: #555; text-decoration: line-through; margin-left: 5px; }
+    .price-col .promo-badge {
+      display: block; margin-top: 2px; font-size: 9px; letter-spacing: .3px;
+      color: #81c784; text-transform: uppercase;
+    }
 
     input.cost-input {
       background: var(--surface3); border: 1px solid var(--border2);
@@ -214,19 +220,27 @@
 <body>
 
 <header>
-  <a href="{{ url_for('web.index') }}" class="logo">AE<span>G</span>IS</a>
+  <a href="{{ url_for('seller.painel') if is_seller else url_for('web.index') }}" class="logo">AE<span>G</span>IS</a>
   <span class="header-title">Custos · {{ account.name }}</span>
   <div class="header-actions">
+    {% if not is_seller %}
     <button class="btn-save-all" id="btnSaveAll" onclick="saveAll()">
       Salvar tudo <span id="dirtyCount">0</span>
     </button>
-    <a href="{{ url_for('web.dashboard', account=account.name) }}" class="btn btn-ghost">← Dashboard</a>
+    {% endif %}
+    {% if is_seller %}
+      <a href="{{ url_for('seller.painel') }}" class="btn btn-ghost">← Painel</a>
+    {% else %}
+      <a href="{{ url_for('web.dashboard', account=account.name) }}" class="btn btn-ghost">← Dashboard</a>
+    {% endif %}
     <a href="{{ url_for('costs.apuracao', seller_id=seller_id) }}"  class="btn btn-ghost">Apuração</a>
     <a href="{{ url_for('costs.diagnostico', seller_id=seller_id) }}" class="btn btn-ghost">Diagnóstico</a>
-    <a href="{{ url_for('costs.conciliacao_nfe', seller_id=seller_id) }}" class="btn btn-ghost">Conciliação NF-e</a>
     <a href="{{ url_for('stock.estoque', seller_id=seller_id) }}" class="btn btn-ghost">Estoque</a>
+    {% if not is_seller %}
+    <a href="{{ url_for('costs.conciliacao_nfe', seller_id=seller_id) }}" class="btn btn-ghost">Conciliação NF-e</a>
     <a href="{{ url_for('costs.template_costs', seller_id=seller_id) }}" class="btn btn-ghost">Template .xlsx</a>
     <a href="{{ url_for('costs.export_costs',   seller_id=seller_id) }}" class="btn btn-primary">Exportar .xlsx</a>
+    {% endif %}
   </div>
 </header>
 
@@ -256,6 +270,19 @@
       <div class="lbl">Total produtos</div>
       <div class="val" style="color:var(--orange)">{{ items|length }}</div>
     </div>
+    <div class="sum-card">
+      <div class="lbl">Com promoção ativa</div>
+      <div class="val" style="color:{{ 'var(--green)' if com_promo and com_promo > 0 else '#555' }}">{{ com_promo or 0 }}</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;justify-content:center">
+      {% if not is_seller %}
+      <button type="button" id="btnRefreshPrecos" class="btn btn-primary" style="width:fit-content" onclick="refreshPrecos()">Atualizar preços ML</button>
+      {% endif %}
+      <span style="font-size:10px;color:#555">
+        preço efetivo (sale_price) ·
+        {% if ultima_sync_preco %}sync {{ ultima_sync_preco | timestamp_to_str }}{% else %}nunca sincronizado{% endif %}
+      </span>
+    </div>
     {% if sem_custo > 0 %}
     <div style="display:flex;align-items:center;font-size:12px;color:#6a2020;background:#1a0808;border:1px solid #4a1515;border-radius:8px;padding:10px 16px;gap:8px;">
       <span style="font-size:18px">⚠️</span>
@@ -265,6 +292,7 @@
   </div>
 
   <!-- ── DEFAULTS ─────────────────────────────────────────────────────────── -->
+  {% if not is_seller %}
   <form method="POST" action="{{ url_for('costs.save_defaults', seller_id=seller_id) }}">
     <div class="defaults-box">
       <div class="box-title">Configurações padrão do seller</div>
@@ -288,9 +316,11 @@
       <p class="tip">Alíquota usada na apuração de lucro. Marque "Aplicar a todos" para forçar em toda a base.</p>
     </div>
   </form>
+  {% endif %}
 
   <!-- ── TOOLBAR (importar + filtros) ─────────────────────────────────────── -->
   <div class="toolbar">
+    {% if not is_seller %}
     <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Importar .xlsx</span>
     <form method="POST" action="{{ url_for('costs.import_costs', seller_id=seller_id) }}"
           enctype="multipart/form-data" style="display:flex;align-items:center;gap:8px">
@@ -308,6 +338,7 @@
     </form>
 
     <div class="sep"></div>
+    {% endif %}
 
     <input class="search" id="searchInput" type="text" placeholder="Buscar produto…"
            oninput="applyFilters()">
@@ -351,7 +382,9 @@
         {% set has_cost = item.unit_cost is not none %}
         <tr class="{{ 'cost-set' if has_cost else 'cost-empty' }}"
             data-id="{{ item.id }}"
-            data-price="{{ item.price or 0 }}"
+            data-price="{{ item.price_calc or item.price or 0 }}"
+            data-regular-price="{{ item.regular_price or item.price or 0 }}"
+            data-has-promo="{{ '1' if item.has_active_promotion else '0' }}"
             data-title="{{ item.title|lower }}"
             data-brand="{{ (item.marca or '')|lower }}"
             data-has-cost="{{ 'com' if has_cost else 'sem' }}">
@@ -368,38 +401,64 @@
 
           <!-- Marca -->
           <td>
+            {% if is_seller %}
+              {{ item.marca or '—' }}
+            {% else %}
             <input class="marca-input"
                    type="text"
                    value="{{ item.marca or '' }}"
                    placeholder="marca…"
                    data-field="marca"
                    oninput="markDirty(this)">
+            {% endif %}
           </td>
 
           <!-- Preço ML -->
-          <td class="price-col">R$ {{ '%.2f'|format(item.price or 0) }}</td>
+          <td class="price-col">
+            {% if item.has_active_promotion %}
+              <span class="price-eff">R$ {{ '%.2f'|format(item.price_calc or 0) }}</span>
+              <span class="price-reg">R$ {{ '%.2f'|format(item.regular_price or item.price or 0) }}</span>
+              <span class="promo-badge" title="{{ item.promotion_type or 'promoção' }}{% if item.promo_end %} · até {{ item.promo_end }}{% endif %}">
+                −{{ '%.0f'|format(((item.regular_price or item.price or 0) - (item.price_calc or 0)) / (item.regular_price or item.price or 1) * 100) }}%
+                {%- if item.promotion_type %} · {{ item.promotion_type }}{% endif %}
+              </span>
+            {% else %}
+              R$ {{ '%.2f'|format(item.price_calc or item.price or 0) }}
+            {% endif %}
+          </td>
 
           <!-- Custo NF -->
           <td class="num">
+            {% if is_seller %}
+              {{ '%.2f'|format(item.unit_cost) if has_cost else '—' }}
+            {% else %}
             <input class="cost-input" type="number" step="0.01" min="0"
                    value="{{ '%.2f'|format(item.unit_cost) if has_cost else '' }}"
                    placeholder="0.00"
                    data-field="unit_cost"
                    oninput="markDirty(this); recalcMargem(this)">
+            {% endif %}
           </td>
 
           <!-- Alíquota -->
           <td class="num">
+            {% if is_seller %}
+              {{ '%.2f'|format(item.tax_rate * 100) if item.tax_rate is not none else '%.2f'|format(defaults.tax_rate * 100) }}<span class="tag-unit">%</span>
+            {% else %}
             <input class="cost-input" type="number" step="0.01" min="0" max="100"
                    value="{{ '%.2f'|format(item.tax_rate * 100) if item.tax_rate is not none else '%.2f'|format(defaults.tax_rate * 100) }}"
                    placeholder="{{ '%.2f'|format(defaults.tax_rate * 100) }}"
                    data-field="tax_rate"
                    oninput="markDirty(this); recalcMargem(this)">
             <span class="tag-unit">%</span>
+            {% endif %}
           </td>
 
           <!-- Comissão ML -->
           <td class="num">
+            {% if is_seller %}
+              {{ '%.2f'|format(item.ml_fee_rate * 100) if item.ml_fee_rate is not none else '%.2f'|format(defaults.ml_fee_rate * 100) }}<span class="tag-unit">%</span>
+            {% else %}
             <input class="cost-input" type="number" step="0.01" min="0" max="100"
                    value="{{ '%.2f'|format(item.ml_fee_rate * 100) if item.ml_fee_rate is not none else '%.2f'|format(defaults.ml_fee_rate * 100) }}"
                    placeholder="{{ '%.2f'|format(defaults.ml_fee_rate * 100) }}"
@@ -408,22 +467,27 @@
             <span class="tag-unit">%</span>
             <button class="btn-hist" type="button" title="Buscar comissão real na API do ML"
                     onclick="fetchMlFee(this)">⟳</button>
+            {% endif %}
           </td>
 
           <!-- Frete -->
           <td class="num">
+            {% if is_seller %}
+              {{ '%.2f'|format(item.shipping_cost) if item.shipping_cost is not none else '0.00' }}
+            {% else %}
             <input class="cost-input" type="number" step="0.01" min="0"
                    value="{{ '%.2f'|format(item.shipping_cost) if item.shipping_cost is not none else '0.00' }}"
                    placeholder="0.00"
                    data-field="shipping_cost"
                    oninput="markDirty(this); recalcMargem(this)">
+            {% endif %}
           </td>
 
           <!-- Margem RT -->
           <td class="margem-cell" id="margem-{{ item.id }}">
             {% if has_cost %}
-              {# Initial server-side margem calc #}
-              {% set p = item.price or 0 %}
+              {# Initial server-side margem calc — usa o preço efetivo vigente (sale_price) #}
+              {% set p = item.price_calc or item.price or 0 %}
               {% set c = item.unit_cost or 0 %}
               {% set fee = item.ml_fee_rate or defaults.ml_fee_rate %}
               {% set tax = item.tax_rate or defaults.tax_rate %}
@@ -627,6 +691,37 @@ async function fetchMlFee(btn) {
   } catch (e) {
     showToast('❌ Falha na requisição: ' + e.message, 'error');
   } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+// ── Refresh preços efetivos (sale_price) ─────────────────────────────────────
+async function refreshPrecos() {
+  const btn = document.getElementById('btnRefreshPrecos');
+  if (!btn) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Consultando ML…';
+
+  try {
+    const res  = await fetch(`/custos/${SELLER_ID}/refresh-precos`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(
+        `Preços atualizados: ${data.updated}/${data.checked} item(ns), ` +
+        `${data.with_promo} com promoção ativa` +
+        (data.errors && data.errors.length ? ` · ${data.errors.length} erro(s)` : ''),
+        'success'
+      );
+      setTimeout(() => window.location.reload(), 900);
+    } else {
+      showToast('❌ Erro ao atualizar preços: ' + (data.error || 'desconhecido'), 'error');
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  } catch (e) {
+    showToast('❌ Falha na requisição: ' + e.message, 'error');
     btn.disabled = false;
     btn.textContent = original;
   }

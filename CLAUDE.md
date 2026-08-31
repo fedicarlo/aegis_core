@@ -6,6 +6,34 @@ Sistema de gestão operacional multi-conta para sellers de Mercado Livre. Python
 **MELI CLIENT_ID:** 5322198809581181
 **Contas piloto:** GREENLABS/Maximus (seller_id 2124526664), Querência (seller_id 2465189536)
 
+## Produção e tokens — regra crítica
+
+Além do ambiente local do Lipe, roda uma instância em **produção no Railway**
+(projeto `scintillating-insight`, serviço `aegis_core`,
+`https://aegiscore-production-8d7b.up.railway.app`, volume `/data`,
+`DB_PATH=/data/aegis.db`). Produção tem `AUTO_SYNC_ENABLED=true` e renova os
+tokens das contas no seu próprio ciclo (a cada 6h).
+
+**NUNCA rodar coleta, `get_valid_token`, `refresh_token` ou qualquer operação
+que use token de conta real a partir de cópia local do banco de produção.**
+O `aegis.db` local é um espelho defasado. O ML rotaciona `refresh_token` de uso
+único: qualquer refresh disparado localmente **queima o token que produção tem
+guardado**, e o próximo auto-sync de produção falha com `invalid_grant` —
+obrigando reautorização manual via OAuth no navegador.
+
+Toda operação que precise de token de seller roda **dentro do container de
+produção via `railway ssh`**, contra `/data/aegis.db` — nunca no ambiente local.
+O ambiente local serve só para desenvolvimento de código e testes com
+fixtures/dados fake.
+
+```
+railway ssh -- "cd /app && .venv/bin/python -c 'from app.services.ads_collector import collect_all_ads; collect_all_ads()'"
+```
+
+(Incidente 2026-08-31: uma coleta de Ads rodada localmente rotacionou os tokens
+de Querencia, The Good Store e VIVALEVE; as três precisaram de reautorização
+OAuth manual em produção.)
+
 ## Estado atual dos módulos
 
 - OAuth multi-conta (dashboard de gestão de contas)
@@ -14,6 +42,16 @@ Sistema de gestão operacional multi-conta para sellers de Mercado Livre. Python
 - Sugestão de indução: `envio = giro_base × (dias_alvo + ciclo_logístico) × fator_maturidade × fator_tendência × 1.2` (ciclo logístico = 20 dias)
 - Módulo de custo/margem, rentabilidade de promoções, calendário de reposição, relatórios executivos, simulador de precificação
 - Módulo financeiro (Mercado Pago): **REMOVIDO do pipeline por decisão — não desenvolver nem reconectar por enquanto.** A função `get_mp_conciliation` existe no banco mas está desligada de propósito.
+- **Login multiusuário de sellers** (`app/auth_policy.py`, `app/routes/seller.py`):
+  separado do login de admin único. Tabelas `seller_users` / `seller_suggestions`
+  / `induction_decisions`. Isolamento por **allowlist positiva** de endpoints
+  (`SELLER_ALLOWED`) + trava de `seller_id` no `before_request`; `session["seller_id"]`
+  só é escrito em `routes/auth.py`, nunca lido de URL/form. Seller: leitura da
+  própria conta + confirmar envio FULL + aprovar/rejeitar indução (ledger) +
+  sugerir status de produto (pendente de aprovação do admin em `/admin/aprovacoes`).
+  Credenciais criadas manualmente pelo admin em `/admin/seller-users`. Cobertura:
+  `tests/test_seller_isolation.py` varre todo o `url_map`. Pendência anotada:
+  rate limit / brute-force no login do seller.
 
 ## Bugs abertos (Fase 1 do plano)
 

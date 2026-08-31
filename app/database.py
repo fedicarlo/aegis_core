@@ -2,6 +2,7 @@ import json
 import re
 import sqlite3
 import time
+from werkzeug.security import generate_password_hash, check_password_hash
 from app.config import DB_PATH, ACCOUNTS
 from app.utils.logger import get_logger as _get_logger
 
@@ -197,6 +198,25 @@ def init_data_tables():
             changed_at  INTEGER
         )
     """)
+
+    # ── items: colunas de preço efetivo vigente (Etapa A — custos/promoções) ──
+    # `price` continua sendo o LISTADO (não quebra get_margin_data/compute_margin).
+    # effective_sale_price / regular_price vêm de GET /items/{id}/sale_price.
+    _items_cols = {r[1] for r in c.execute("PRAGMA table_info(items)").fetchall()}
+    _items_new = {
+        "regular_price": "REAL",
+        "effective_sale_price": "REAL",
+        "has_active_promotion": "INTEGER DEFAULT 0",
+        "promotion_id": "TEXT",
+        "promotion_type": "TEXT",
+        "price_source": "TEXT",
+        "promo_start": "TEXT",
+        "promo_end": "TEXT",
+        "price_synced_at": "INTEGER",
+    }
+    for _col, _decl in _items_new.items():
+        if _col not in _items_cols:
+            c.execute(f"ALTER TABLE items ADD COLUMN {_col} {_decl}")
 
     conn.commit()
     conn.close()
@@ -634,11 +654,21 @@ def update_ml_fee_rate(seller_id: str, item_id: str, variation_id: str, ml_fee_r
 
 
 def get_items_for_costs(seller_id: str) -> list:
-    """Retorna todos os itens do seller com custos atuais (LEFT JOIN)."""
+    """
+    Retorna todos os itens do seller com custos atuais (LEFT JOIN).
+    `price`               = preço listado (GET /items) — mantido p/ referência.
+    `effective_sale_price`= preço vencedor efetivo (GET /items/{id}/sale_price).
+    `price_calc`          = preço a usar na margem projetada:
+                            COALESCE(effective_sale_price, regular_price, price).
+    """
     conn = get_conn()
     rows = conn.execute("""
         SELECT
             i.id, i.title, i.price, i.status,
+            i.regular_price, i.effective_sale_price, i.has_active_promotion,
+            i.promotion_id, i.promotion_type, i.price_source,
+            i.promo_start, i.promo_end, i.price_synced_at,
+            COALESCE(i.effective_sale_price, i.regular_price, i.price) AS price_calc,
             pc.unit_cost, pc.tax_rate, pc.ml_fee_rate, pc.shipping_cost,
             pc.marca, pc.variation_id, pc.updated_at AS cost_updated_at
         FROM items i
@@ -649,6 +679,47 @@ def get_items_for_costs(seller_id: str) -> list:
     """, (seller_id, seller_id)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def update_item_effective_price(seller_id: str, item_id: str, resolved: dict) -> bool:
+    """
+    Grava o preço efetivo vigente + dados da promoção num item já existente.
+    `resolved` = saída de pricing.resolve_effective_price(...).
+    Não cria o item; retorna True se atualizou uma linha.
+    Mantém a coluna legada `has_promotion` em sincronia com `has_active_promotion`.
+    """
+    now = int(time.time())
+    conn = get_conn()
+    cur = conn.execute("""
+        UPDATE items SET
+            regular_price        = ?,
+            effective_sale_price = ?,
+            has_active_promotion = ?,
+            has_promotion        = ?,
+            promotion_id         = ?,
+            promotion_type       = ?,
+            price_source         = ?,
+            promo_start          = ?,
+            promo_end            = ?,
+            price_synced_at      = ?
+        WHERE id = ? AND seller_id = ?
+    """, (
+        resolved.get("regular_price"),
+        resolved.get("effective_sale_price"),
+        1 if resolved.get("has_active_promotion") else 0,
+        1 if resolved.get("has_active_promotion") else 0,
+        resolved.get("promotion_id"),
+        resolved.get("promotion_type"),
+        resolved.get("price_source"),
+        resolved.get("promo_start"),
+        resolved.get("promo_end"),
+        now,
+        item_id, seller_id,
+    ))
+    conn.commit()
+    updated = cur.rowcount > 0
+    conn.close()
+    return updated
 
 
 def get_cost_history(seller_id: str, item_id: str, limit: int = 5) -> list:
@@ -3818,3 +3889,314 @@ def update_ads_experiment(experiment_id, **fields):
                  (*patch.values(), experiment_id))
     conn.commit()
     conn.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Login multiusuário de sellers assinantes (separado do login de admin único)
+#
+#   - seller_users         : credenciais; 1 login → 1 seller_id (vínculo fixo)
+#   - seller_suggestions   : canal "seller só sugere" (status de produto);
+#                            nada aqui altera dado computado até o admin aprovar
+#   - induction_decisions  : ledger de aprovar/rejeitar sugestão de indução
+#
+# Nenhuma senha em claro toca o banco — só o hash scrypt do werkzeug.
+# ══════════════════════════════════════════════════════════════════════════════
+
+_MIN_PASSWORD_LEN = 8
+_SUGGESTION_STATES = ("pending", "approved", "rejected")
+_INDUCTION_DECISIONS = ("approved", "rejected")
+
+
+def init_seller_auth_tables():
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS seller_users (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id        TEXT    NOT NULL,
+            email            TEXT    NOT NULL,
+            password_hash    TEXT    NOT NULL,
+            nome_responsavel TEXT    NOT NULL DEFAULT '',
+            telefone         TEXT    NOT NULL DEFAULT '',
+            active           INTEGER NOT NULL DEFAULT 1,
+            created_at       INTEGER NOT NULL,
+            created_by       TEXT    NOT NULL DEFAULT 'admin',
+            last_login_at    INTEGER
+        )
+    """)
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_seller_users_email "
+              "ON seller_users(lower(email))")
+    c.execute("CREATE INDEX IF NOT EXISTS ix_seller_users_seller "
+              "ON seller_users(seller_id)")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS seller_suggestions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id       TEXT    NOT NULL,
+            kind            TEXT    NOT NULL,
+            item_id         TEXT    NOT NULL DEFAULT '',
+            variation_id    TEXT    NOT NULL DEFAULT '',
+            payload_json    TEXT    NOT NULL DEFAULT '{}',
+            comment         TEXT    NOT NULL DEFAULT '',
+            state           TEXT    NOT NULL DEFAULT 'pending',
+            created_at      INTEGER NOT NULL,
+            created_by      INTEGER NOT NULL,
+            resolved_at     INTEGER,
+            resolved_by     TEXT,
+            resolution_note TEXT    NOT NULL DEFAULT ''
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS ix_seller_suggestions_state "
+              "ON seller_suggestions(seller_id, state)")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS induction_decisions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id       TEXT    NOT NULL,
+            item_id         TEXT    NOT NULL,
+            variation_id    TEXT    NOT NULL DEFAULT '',
+            suggested_qty   INTEGER,
+            suggestion_hash TEXT    NOT NULL DEFAULT '',
+            decision        TEXT    NOT NULL,
+            decided_qty     INTEGER,
+            comment         TEXT    NOT NULL DEFAULT '',
+            decided_at      INTEGER NOT NULL,
+            decided_by      INTEGER NOT NULL
+        )
+    """)
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_induction_decisions_item "
+              "ON induction_decisions(seller_id, item_id, variation_id)")
+
+    conn.commit()
+    conn.close()
+
+
+# ── seller_users ────────────────────────────────────────────────────────────
+
+def _normalize_email(email: str) -> str:
+    return (email or "").strip()
+
+
+def create_seller_user(seller_id, email, password, nome_responsavel="",
+                       telefone="", created_by="admin"):
+    """Cria uma credencial de seller. Levanta ValueError em e-mail duplicado,
+    senha curta ou campos obrigatórios vazios. Retorna o id novo."""
+    email = _normalize_email(email)
+    if not seller_id:
+        raise ValueError("seller_id é obrigatório.")
+    if not email:
+        raise ValueError("e-mail é obrigatório.")
+    if not password or len(password) < _MIN_PASSWORD_LEN:
+        raise ValueError(f"senha precisa ter ao menos {_MIN_PASSWORD_LEN} caracteres.")
+
+    conn = get_conn()
+    try:
+        cur = conn.execute("""
+            INSERT INTO seller_users
+                (seller_id, email, password_hash, nome_responsavel, telefone,
+                 active, created_at, created_by)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+        """, (str(seller_id), email, generate_password_hash(password),
+              (nome_responsavel or "").strip(), (telefone or "").strip(),
+              int(time.time()), created_by))
+        conn.commit()
+        return cur.lastrowid
+    except sqlite3.IntegrityError:
+        raise ValueError("já existe um login com esse e-mail.")
+    finally:
+        conn.close()
+
+
+def get_seller_user(user_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM seller_users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_seller_user_by_email(email, *, only_active=True):
+    conn = get_conn()
+    sql = "SELECT * FROM seller_users WHERE lower(email) = lower(?)"
+    if only_active:
+        sql += " AND active = 1"
+    row = conn.execute(sql, (_normalize_email(email),)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def authenticate_seller(email, password):
+    """Retorna o dict do seller_user se o login (ativo) confere; senão None.
+    Mantém o hashing dentro de database.py — as rotas não importam werkzeug."""
+    user = get_seller_user_by_email(email, only_active=True)
+    if not user or not check_password_hash(user["password_hash"], password or ""):
+        return None
+    return user
+
+
+def list_seller_users():
+    """Todos os seller_users + o nome da conta vinculada (para a tela admin)."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT su.*, a.name AS account_name, a.nickname AS account_nickname
+        FROM seller_users su
+        LEFT JOIN accounts a ON a.seller_id = su.seller_id
+        ORDER BY su.created_at DESC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def set_seller_user_password(user_id, new_password):
+    if not new_password or len(new_password) < _MIN_PASSWORD_LEN:
+        raise ValueError(f"senha precisa ter ao menos {_MIN_PASSWORD_LEN} caracteres.")
+    conn = get_conn()
+    conn.execute("UPDATE seller_users SET password_hash = ? WHERE id = ?",
+                 (generate_password_hash(new_password), user_id))
+    conn.commit()
+    conn.close()
+
+
+def toggle_seller_user(user_id):
+    """Inverte active 0/1. Retorna o novo estado (bool) ou None se não existe."""
+    conn = get_conn()
+    row = conn.execute("SELECT active FROM seller_users WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        conn.close()
+        return None
+    new_state = 0 if row["active"] else 1
+    conn.execute("UPDATE seller_users SET active = ? WHERE id = ?", (new_state, user_id))
+    conn.commit()
+    conn.close()
+    return bool(new_state)
+
+
+def touch_seller_login(user_id):
+    conn = get_conn()
+    conn.execute("UPDATE seller_users SET last_login_at = ? WHERE id = ?",
+                 (int(time.time()), user_id))
+    conn.commit()
+    conn.close()
+
+
+# ── seller_suggestions ─────────────────────────────────────────────────────
+
+def create_suggestion(seller_id, kind, item_id, variation_id, payload,
+                      comment, created_by):
+    """Registra uma sugestão do seller (state=pending). `payload` é dict.
+    `comment` (justificativa) é obrigatório. Retorna o id novo."""
+    if not (comment or "").strip():
+        raise ValueError("a justificativa é obrigatória.")
+    if not isinstance(payload, (dict, type(None))):
+        raise ValueError("payload precisa ser um objeto.")
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO seller_suggestions
+            (seller_id, kind, item_id, variation_id, payload_json, comment,
+             state, created_at, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+    """, (str(seller_id), kind, str(item_id or ""), str(variation_id or ""),
+          json.dumps(payload or {}, ensure_ascii=False), comment.strip(),
+          int(time.time()), created_by))
+    conn.commit()
+    conn.close()
+    return cur.lastrowid
+
+
+def _suggestion_row(r):
+    d = dict(r)
+    try:
+        d["payload"] = json.loads(d.get("payload_json") or "{}")
+    except (TypeError, ValueError):
+        d["payload"] = {}
+    return d
+
+
+def list_suggestions(*, seller_id=None, state=None, limit=200):
+    conn = get_conn()
+    sql = "SELECT * FROM seller_suggestions WHERE 1=1"
+    args = []
+    if seller_id is not None:
+        sql += " AND seller_id = ?"; args.append(str(seller_id))
+    if state is not None:
+        sql += " AND state = ?"; args.append(state)
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    args.append(limit)
+    rows = conn.execute(sql, args).fetchall()
+    conn.close()
+    return [_suggestion_row(r) for r in rows]
+
+
+def list_pending_suggestions():
+    return list_suggestions(state="pending")
+
+
+def get_suggestion(suggestion_id):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM seller_suggestions WHERE id = ?",
+                       (suggestion_id,)).fetchone()
+    conn.close()
+    return _suggestion_row(row) if row else None
+
+
+def resolve_suggestion(suggestion_id, state, resolved_by, note=""):
+    if state not in ("approved", "rejected"):
+        raise ValueError("state precisa ser 'approved' ou 'rejected'.")
+    conn = get_conn()
+    conn.execute("""
+        UPDATE seller_suggestions
+        SET state = ?, resolved_at = ?, resolved_by = ?, resolution_note = ?
+        WHERE id = ? AND state = 'pending'
+    """, (state, int(time.time()), resolved_by, (note or "").strip(), suggestion_id))
+    changed = conn.total_changes
+    conn.commit()
+    conn.close()
+    return changed > 0
+
+
+# ── induction_decisions ────────────────────────────────────────────────────
+
+def upsert_induction_decision(seller_id, item_id, variation_id, *,
+                              suggested_qty, suggestion_hash, decision,
+                              decided_qty, comment, decided_by):
+    """Grava/atualiza a decisão do seller sobre a sugestão de indução de um item
+    (última decisão por item vence). Retorna o id da linha."""
+    if decision not in _INDUCTION_DECISIONS:
+        raise ValueError("decision precisa ser 'approved' ou 'rejected'.")
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO induction_decisions
+            (seller_id, item_id, variation_id, suggested_qty, suggestion_hash,
+             decision, decided_qty, comment, decided_at, decided_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(seller_id, item_id, variation_id) DO UPDATE SET
+            suggested_qty   = excluded.suggested_qty,
+            suggestion_hash = excluded.suggestion_hash,
+            decision        = excluded.decision,
+            decided_qty     = excluded.decided_qty,
+            comment         = excluded.comment,
+            decided_at      = excluded.decided_at,
+            decided_by      = excluded.decided_by
+    """, (str(seller_id), str(item_id), str(variation_id or ""), suggested_qty,
+          suggestion_hash or "", decision, decided_qty, (comment or "").strip(),
+          int(time.time()), decided_by))
+    row = conn.execute("""
+        SELECT id FROM induction_decisions
+        WHERE seller_id = ? AND item_id = ? AND variation_id = ?
+    """, (str(seller_id), str(item_id), str(variation_id or ""))).fetchone()
+    conn.commit()
+    conn.close()
+    return row["id"] if row else None
+
+
+def list_induction_decisions(*, seller_id=None, limit=200):
+    conn = get_conn()
+    sql = "SELECT * FROM induction_decisions WHERE 1=1"
+    args = []
+    if seller_id is not None:
+        sql += " AND seller_id = ?"; args.append(str(seller_id))
+    sql += " ORDER BY decided_at DESC LIMIT ?"
+    args.append(limit)
+    rows = conn.execute(sql, args).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

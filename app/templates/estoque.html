@@ -105,10 +105,14 @@
 <body>
 
 <header>
-  <a href="{{ url_for('web.index') }}" class="logo">AE<span>G</span>IS</a>
+  <a href="{{ url_for('seller.painel') if is_seller else url_for('web.index') }}" class="logo">AE<span>G</span>IS</a>
   <span class="header-title">Estoque · {{ account.name }}</span>
   <div class="header-actions">
-    <a href="{{ url_for('web.dashboard', account=account.name) }}" class="btn btn-ghost">← Dashboard</a>
+    {% if is_seller %}
+      <a href="{{ url_for('seller.painel') }}" class="btn btn-ghost">← Painel</a>
+    {% else %}
+      <a href="{{ url_for('web.dashboard', account=account.name) }}" class="btn btn-ghost">← Dashboard</a>
+    {% endif %}
     <a href="{{ url_for('costs.custos', seller_id=seller_id) }}" class="btn btn-ghost">Custos</a>
   </div>
 </header>
@@ -145,6 +149,7 @@
   </div>
 
   <div class="forms-row">
+    {% if not is_seller %}
     <form class="form-box" method="POST" action="{{ url_for('stock.entrada_estoque', seller_id=seller_id) }}">
       <div class="box-title">Entrada de estoque próprio (mercadoria do fornecedor)</div>
       <div class="field-group">
@@ -157,8 +162,10 @@
       </div>
       <button type="submit" class="btn btn-primary">Ajustar estoque próprio</button>
     </form>
+    {% endif %}
 
-    <form class="form-box" method="POST" action="{{ url_for('stock.envio_full', seller_id=seller_id) }}">
+    <form class="form-box" method="POST"
+          action="{{ url_for('seller.confirm_full_shipment') if is_seller else url_for('stock.envio_full', seller_id=seller_id) }}">
       <div class="box-title">Registrar envio ao FULL</div>
       <div class="field-group">
         <label>Item ID</label>

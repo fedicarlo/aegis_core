@@ -4,24 +4,42 @@ from flask import Blueprint, redirect, request, flash, url_for, render_template,
 
 from app import config
 from app.services.meli_auth import build_auth_url, exchange_code_for_tokens
-from app.database import get_account_by_name
+from app.database import get_account_by_name, authenticate_seller, touch_seller_login
 
 auth_bp = Blueprint("auth", __name__)
 
 
-# ── Login administrativo ──────────────────────────────────────────────────────
+# ── Login (admin único OU seller assinante, mesma tela) ──────────────────────
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        password = request.form.get("password", "")
-        if secrets.compare_digest(password, config.ADMIN_PASSWORD):
-            session.clear()
-            session["admin"] = True
-            session.permanent = True
-            next_url = request.form.get("next") or url_for("web.index")
-            return redirect(next_url)
-        flash("Senha incorreta.", "error")
+        modo     = request.form.get("modo", "admin")
+        next_url = request.form.get("next") or ""
+
+        if modo == "seller":
+            email = request.form.get("email", "")
+            senha = request.form.get("password", "")
+            user  = authenticate_seller(email, senha)
+            if user:
+                session.clear()
+                session["role"]           = "seller"
+                session["seller_user_id"] = user["id"]
+                session["seller_id"]      = str(user["seller_id"])
+                session.permanent = True
+                touch_seller_login(user["id"])
+                return redirect(url_for("seller.painel"))
+            flash("E-mail ou senha inválidos.", "error")
+
+        else:  # admin
+            senha = request.form.get("password", "")
+            if secrets.compare_digest(senha, config.ADMIN_PASSWORD):
+                session.clear()
+                session["role"]  = "admin"
+                session["admin"] = True  # compat com sessões/checagens antigas
+                session.permanent = True
+                return redirect(next_url or url_for("web.index"))
+            flash("Senha incorreta.", "error")
 
     next_url = request.args.get("next", "")
     return render_template("login.html", next=next_url)
@@ -29,6 +47,14 @@ def login():
 
 @auth_bp.route("/logout")
 def logout():
+    session.clear()
+    flash("Sessão encerrada.", "info")
+    return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/painel/sair")
+def seller_logout():
+    """Logout do seller — endpoint próprio pra entrar na allowlist do seller."""
     session.clear()
     flash("Sessão encerrada.", "info")
     return redirect(url_for("auth.login"))

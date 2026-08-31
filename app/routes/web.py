@@ -269,3 +269,111 @@ def collect_all():
         flash(f"Erro na coleta geral: {str(e)}", "error")
 
     return redirect(url_for("web.index"))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Admin — credenciais de seller + fila de aprovações
+# (admin-only pelo before_request; nenhum destes endpoints entra em SELLER_ALLOWED)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_STATUS_SUGERIVEIS = {"manter", "saida_planejada", "descontinuar", "fora_regua"}
+
+
+@web_bp.route("/admin/seller-users")
+def admin_seller_users():
+    from app.database import list_seller_users
+    accounts = [a for a in get_all_accounts()
+                if a.get("access_token") and a.get("seller_id")]
+    return render_template("admin_seller_users.html",
+                           users=list_seller_users(), accounts=accounts)
+
+
+@web_bp.route("/admin/seller-users/create", methods=["POST"])
+def admin_seller_users_create():
+    from app.database import create_seller_user
+    seller_id = request.form.get("seller_id", "").strip()
+    email     = request.form.get("email", "").strip()
+    senha     = request.form.get("password", "")
+    nome      = request.form.get("nome_responsavel", "").strip()
+    telefone  = request.form.get("telefone", "").strip()
+
+    valid_ids = {str(a["seller_id"]) for a in get_all_accounts()
+                 if a.get("access_token") and a.get("seller_id")}
+    if seller_id not in valid_ids:
+        flash("Selecione uma conta autorizada válida.", "error")
+        return redirect(url_for("web.admin_seller_users"))
+
+    try:
+        create_seller_user(seller_id, email, senha, nome, telefone, created_by="admin")
+        flash(f"Credencial criada para {email}.", "success")
+    except ValueError as e:
+        flash(str(e), "error")
+    return redirect(url_for("web.admin_seller_users"))
+
+
+@web_bp.route("/admin/seller-users/<int:user_id>/reset-senha", methods=["POST"])
+def admin_seller_users_reset(user_id):
+    from app.database import set_seller_user_password
+    try:
+        set_seller_user_password(user_id, request.form.get("password", ""))
+        flash("Senha redefinida.", "success")
+    except ValueError as e:
+        flash(str(e), "error")
+    return redirect(url_for("web.admin_seller_users"))
+
+
+@web_bp.route("/admin/seller-users/<int:user_id>/toggle", methods=["POST"])
+def admin_seller_users_toggle(user_id):
+    from app.database import toggle_seller_user
+    new_state = toggle_seller_user(user_id)
+    if new_state is None:
+        flash("Usuário não encontrado.", "error")
+    else:
+        flash(f"Login {'ativado' if new_state else 'desativado'}.", "info")
+    return redirect(url_for("web.admin_seller_users"))
+
+
+@web_bp.route("/admin/aprovacoes")
+def admin_aprovacoes():
+    from app.database import list_pending_suggestions, list_induction_decisions
+    names = {str(a["seller_id"]): a["name"] for a in get_all_accounts() if a.get("seller_id")}
+    pend = list_pending_suggestions()
+    dec  = list_induction_decisions(limit=100)
+    for s in pend:
+        s["account_name"] = names.get(str(s["seller_id"]), s["seller_id"])
+    for d in dec:
+        d["account_name"] = names.get(str(d["seller_id"]), d["seller_id"])
+    return render_template("admin_aprovacoes.html", pendencias=pend, decisions=dec)
+
+
+@web_bp.route("/admin/aprovacoes/<int:suggestion_id>/resolver", methods=["POST"])
+def admin_aprovacoes_resolver(suggestion_id):
+    from app.database import (
+        get_suggestion, resolve_suggestion, set_product_status_override,
+    )
+    acao = request.form.get("acao", "")            # 'aprovar' | 'rejeitar'
+    nota = request.form.get("nota", "").strip()
+
+    sug = get_suggestion(suggestion_id)
+    if not sug or sug["state"] != "pending":
+        flash("Sugestão não encontrada ou já resolvida.", "error")
+        return redirect(url_for("web.admin_aprovacoes"))
+
+    if acao == "aprovar":
+        if sug["kind"] == "product_status":
+            status = (sug["payload"].get("suggested_status") or "").strip().lower()
+            if status not in _STATUS_SUGERIVEIS:
+                flash("Status sugerido inválido — não aplicado.", "error")
+                return redirect(url_for("web.admin_aprovacoes"))
+            set_product_status_override(
+                sug["seller_id"], sug["item_id"], sug["variation_id"],
+                status, sug["comment"] or nota or "aprovado via sugestão do seller",
+                override_by=f"seller-sugestao#{suggestion_id}")
+        resolve_suggestion(suggestion_id, "approved", "admin", nota)
+        flash("Sugestão aprovada e aplicada.", "success")
+    elif acao == "rejeitar":
+        resolve_suggestion(suggestion_id, "rejected", "admin", nota)
+        flash("Sugestão rejeitada.", "info")
+    else:
+        flash("Ação inválida.", "error")
+    return redirect(url_for("web.admin_aprovacoes"))
