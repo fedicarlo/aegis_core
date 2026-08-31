@@ -125,6 +125,37 @@ def get_listing_fee(token: str, item_id: str) -> dict:
     }
 
 
+# ── Preço efetivo vigente ─────────────────────────────────────────────────────
+
+def get_sale_price(token: str, item_id: str, context: str = None):
+    """
+    GET /items/{id}/sale_price — FONTE CANÔNICA do preço vencedor efetivo.
+    Retorna {price_id, amount, regular_amount, currency_id, reference_date,
+             metadata:{promotion_id, promotion_type}} ou None em 404/403.
+    Somente GET.
+    """
+    params = {"context": context} if context else None
+    try:
+        return _get(f"{MELI_API_URL}/items/{item_id}/sale_price", token, params=params)
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code in (404, 403):
+            return None
+        raise
+
+
+def get_item_prices(token: str, item_id: str):
+    """
+    GET /items/{id}/prices — complementar. Lista de preços (standard, promotion, …)
+    com vigência em conditions.start_time/end_time. None em 404/403. Somente GET.
+    """
+    try:
+        return _get(f"{MELI_API_URL}/items/{item_id}/prices", token)
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code in (404, 403):
+            return None
+        raise
+
+
 # ── Estoque FULL ──────────────────────────────────────────────────────────────
 
 def get_inventory_ids_from_item(item: dict) -> list:

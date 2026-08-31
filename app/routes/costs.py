@@ -8,7 +8,7 @@ from flask import (
 from app.database import (
     get_account_by_seller_id, get_items_for_costs,
     save_cost, get_seller_defaults, save_seller_defaults,
-    apply_defaults_to_all, init_costs_table, get_cost_history,
+    apply_defaults_to_all, init_costs_table, get_cost_history, init_data_tables,
     init_nfe_tables, save_nfe_document, save_nfe_items,
     auto_reconcile_nfe_items, get_pending_nfe_items, reconcile_nfe_item,
     init_ml_fee_cache_table, get_cached_ml_fee, save_ml_fee_cache, update_ml_fee_rate,
@@ -18,11 +18,13 @@ from app.database import (
 from app.services.nfe_parser import parse_nfe_xml, NFeParseError
 from app.services.meli_api import get_listing_fee
 from app.services.meli_auth import get_valid_token
+from app.services.price_sync import refresh_effective_prices
 
 costs_bp = Blueprint("costs", __name__)
 
 
 def _require_seller(seller_id: str):
+    init_data_tables()          # garante as colunas de preço efetivo em items
     init_costs_table()
     init_nfe_tables()
     init_ml_fee_cache_table()
@@ -44,6 +46,10 @@ def custos(seller_id):
     sem_custo = sum(1 for i in items if i["unit_cost"] is None)
     marcas    = sorted({i["marca"] for i in items if i.get("marca")})
 
+    com_promo = sum(1 for i in items if i.get("has_active_promotion"))
+    ultima_sync_preco = max((i["price_synced_at"] for i in items
+                             if i.get("price_synced_at")), default=None)
+
     return render_template(
         "custos.html",
         account   = account,
@@ -51,8 +57,26 @@ def custos(seller_id):
         defaults  = defaults,
         seller_id = seller_id,
         sem_custo = sem_custo,
+        com_promo = com_promo,
+        ultima_sync_preco = ultima_sync_preco,
         marcas    = marcas,
     )
+
+
+# ── Atualizar preço efetivo vigente (GET /items/{id}/sale_price) ──────────────
+
+@costs_bp.route("/custos/<seller_id>/refresh-precos", methods=["POST"])
+def refresh_precos(seller_id):
+    account = _require_seller(seller_id)
+    if not account:
+        return jsonify({"ok": False, "error": "Conta não encontrada"}), 404
+    only_active = request.args.get("all") != "1"
+    try:
+        token = get_valid_token(account)
+        res = refresh_effective_prices(seller_id, token=token, only_active=only_active)
+        return jsonify({"ok": True, **res})
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── Salvar linha individual (mantido para compatibilidade) ────────────────────
